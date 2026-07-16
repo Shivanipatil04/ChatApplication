@@ -1,8 +1,6 @@
-import React from 'react'
-import {useState} from 'react'
+import React, { useState } from 'react'
 import axios from 'axios'
-import {Link} from 'react-router-dom'
-import Register from './pages/Register'
+import { Link } from 'react-router-dom'
 
 const Login = () => {
     const[email, setEmail] = useState("");
@@ -26,15 +24,15 @@ const Login = () => {
 
   return (
     <div className="login">
-        <h1>Login</h1>
-        <form onSubmit ={handleLogin}>
-            <input type = "email" placeholder = "Enter Email" value = {email} onChange = {(e) => setEmail(e.target.value)}/>
+      <h1>Login</h1>
+      <form onSubmit={handleLogin}>
+        <input type="email" placeholder="Enter Email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <input type="password" placeholder="Enter Password" value={password} onChange={(e) => setPassword(e.target.value)} />
 
-            <input type = "password" placeholder = "Enter Password" value = {password} onChange = {(e) => setPassword(e.target.value)}/>
-
-            <button type="submit">Login</button>
-            <p>Don't have an account? <Link to = "/register">Register Here</Link></p>
-        </form>
+        <button type="submit">Login</button>
+        {msg && <p>{msg}</p>}
+        <p>Don't have an account? <Link to="/register">Register Here</Link></p>
+      </form>
     </div>
   )
 }
