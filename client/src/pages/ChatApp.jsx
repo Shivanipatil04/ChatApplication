@@ -3,7 +3,7 @@ import axios from 'axios'
 import { io } from 'socket.io-client'
 import { useNavigate } from 'react-router-dom'
 
-const API_URL = 'http://localhost:5000';
+const API_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname || 'localhost'}:5000`;
 
 const mergeMessages = (...messageLists) => {
   const messagesById = new Map();
@@ -23,11 +23,28 @@ const ChatApp = () => {
   const [friendError, setFriendError] = useState('');
   const [error, setError] = useState('');
   const socketRef = useRef(null);
+  const peerConnectionRef = useRef(null);
   const selectedContactRef = useRef(null);
   const contactsRef = useRef([]);
   const navigate = useNavigate();
+  const[incomingCall, setIncomingCall] = useState(null);
+  const[localStream, setLocalStream] = useState(null);
+  const[remoteStream, setRemoteStream] = useState(null);
+  const[peerConnection, setPeerConnection] = useState(null);
+  const[callStatus, setCallStatus] = useState('');
+  const[socketStatus, setSocketStatus] = useState('Connecting...');
 
   const authorization = { headers: { Authorization: `Bearer ${token}` } };
+
+  const stopMediaTracks = (stream) => {
+    stream?.getTracks().forEach((track) => track.stop());
+  };
+
+  const setVideoRef = (video, stream) => {
+    if (video && stream) {
+      video.srcObject = stream;
+    }
+  };
 
   const logout = useCallback(() => {
     localStorage.removeItem('chatToken');
@@ -56,12 +73,18 @@ const ChatApp = () => {
         setError(requestError.response?.data?.message || 'Could not load your chats.');
       }
     };
+
     loadChatData();
 
-    const socket = io(API_URL, { auth: { token } });
+    const socket = io(API_URL, {
+      auth: { token },
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+    });
+
     socketRef.current = socket;
-    socket.on('connect_error', logout);
-    socket.on('msg', (incomingMessage) => {
+
+    const handleIncomingMessage = (incomingMessage) => {
       const contactId = incomingMessage.senderId === user.id ? incomingMessage.recipientId : incomingMessage.senderId;
       const contact = contactsRef.current.find((item) => item.id === contactId);
 
@@ -71,10 +94,47 @@ const ChatApp = () => {
           ...previous.filter((item) => item.id !== contactId),
         ]);
       }
+
       if (selectedContactRef.current?.id === contactId) {
         setMessages((previous) => mergeMessages(previous, [incomingMessage]));
       }
+    };
+
+    const handleIncomingCall = ({ offer, senderId }) => {
+      setIncomingCall({ senderId, offer });
+      setCallStatus('Incoming call...');
+    };
+
+    const handleAnswer = async ({ answer }) => {
+      const pc = peerConnectionRef.current;
+      if (pc) {
+        await pc.setRemoteDescription(answer);
+        setCallStatus('Call connected');
+      }
+    };
+
+    const handleIceCandidate = async ({ candidate }) => {
+      const pc = peerConnectionRef.current;
+      if (pc && candidate) {
+        await pc.addIceCandidate(candidate);
+      }
+    };
+
+    socket.on('connect', () => {
+      setSocketStatus('Connected');
+      setError('');
     });
+
+    socket.on('connect_error', (error) => {
+      console.error('Socket connect error:', error);
+      setSocketStatus('Connection failed');
+      setError(`Socket connection failed. URL: ${API_URL}`);
+    });
+
+    socket.on('msg', handleIncomingMessage);
+    socket.on('call-user', handleIncomingCall);
+    socket.on('answer-call', handleAnswer);
+    socket.on('ice-candidate', handleIceCandidate);
 
     return () => socket.disconnect();
   }, [logout, token, user.id]);
@@ -115,6 +175,113 @@ const ChatApp = () => {
 
   const availableContacts = contacts.filter((contact) => !conversations.some((conversation) => conversation.id === contact.id));
 
+  const createPeerConnection = async (targetId) => {
+    const pc = new RTCPeerConnection({
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+    });
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate && targetId) {
+        socketRef.current?.emit('ice-candidate', {
+          recipientId: targetId,
+          candidate: event.candidate,
+        });
+      }
+    };
+
+    pc.ontrack = (event) => {
+      setRemoteStream(event.streams[0]);
+    };
+
+    peerConnectionRef.current = pc;
+    setPeerConnection(pc);
+
+    return pc;
+  };
+
+  const startVideoCall = async () => {
+    if (!selectedContact) return;
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true,
+      });
+
+      setLocalStream(stream);
+
+      const pc = await createPeerConnection(selectedContact.id);
+      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      socketRef.current?.emit('call-user', {
+        recipientId: selectedContact.id,
+        offer,
+      });
+
+      setCallStatus('Calling...');
+    } catch (error) {
+      console.error(error);
+      if (error?.name === 'NotReadableError') {
+        setCallStatus('Camera or microphone is already in use. Close another app/tab and try again.');
+      } else {
+        setCallStatus('Could not access camera/microphone');
+      }
+    }
+  };
+
+  const acceptCall = async () => {
+    if (!incomingCall) return;
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true,
+      });
+
+      setLocalStream(stream);
+
+      const pc = await createPeerConnection(incomingCall.senderId);
+      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+
+      await pc.setRemoteDescription(incomingCall.offer);
+
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+
+      socketRef.current?.emit('answer-call', {
+        recipientId: incomingCall.senderId,
+        answer,
+      });
+
+      setCallStatus('Call connected');
+    } catch (error) {
+      console.error(error);
+      if (error?.name === 'NotReadableError') {
+        setCallStatus('Camera or microphone is already in use. Close another app/tab and try again.');
+      } else {
+        setCallStatus('Could not access camera/microphone');
+      }
+    }
+  };
+
+  const endVideoCall = () => {
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.close();
+    }
+
+    stopMediaTracks(localStream);
+
+    peerConnectionRef.current = null;
+    setLocalStream(null);
+    setRemoteStream(null);
+    setPeerConnection(null);
+    setCallStatus('');
+    setIncomingCall(null);
+  };
+
   return (
     <div className="chat-layout">
       <aside className="chat-sidebar">
@@ -151,6 +318,7 @@ const ChatApp = () => {
       <main className="conversation-panel">
         {selectedContact ? <>
           <header className="conversation-header"><h1>@{selectedContact.username}</h1></header>
+          <p className="call-status">Socket: {socketStatus}</p>
           <div className="chat">
             {messages.map((item) => (
               <div key={item.id} className={`message ${item.senderId === user.id ? 'me' : ''}`}>
@@ -159,8 +327,45 @@ const ChatApp = () => {
               </div>
             ))}
           </div>
+
+          {incomingCall && (
+            <div className="call-actions">
+              <p className="call-status">Incoming call...</p>
+              <button type="button" onClick={acceptCall} className="video-call-button">Accept</button>
+              <button type="button" onClick={endVideoCall} className="video-call-button">Decline</button>
+            </div>
+          )}
+
+          {(localStream || remoteStream || incomingCall) && (
+            <div className="video-panel">
+              <video
+                className="video-element"
+                ref={(video) => setVideoRef(video, localStream)}
+                autoPlay
+                muted
+                playsInline
+              />
+              <video
+                className="video-element"
+                ref={(video) => setVideoRef(video, remoteStream)}
+                autoPlay
+                playsInline
+              />
+            </div>
+          )}
+
           <form className="inputbar" onSubmit={sendMessage}>
-            <input value={message} onChange={(event) => setMessage(event.target.value)} placeholder={`Message @${selectedContact.username}`} />
+            <input
+              value={message}
+              onChange={(event) => setMessage(event.target.value)}
+              placeholder={`Message @${selectedContact.username}`}
+            />
+            <button type="button" onClick={startVideoCall} className="video-call-button">
+              Call
+            </button>
+            <button type="button" onClick={endVideoCall} className="video-call-button">
+              End Call
+            </button>
             <button type="submit">Send</button>
           </form>
         </> : <div className="empty-conversation">Select a person to start chatting.</div>}
