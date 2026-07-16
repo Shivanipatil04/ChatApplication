@@ -4,17 +4,19 @@ import Navbar from './components/Navbar'
 import ChatApp from './pages/ChatApp'
 import Login from './pages/Login'
 import Register from './pages/Register'
+import Home from './pages/Home'
 
 const App = () => {
   return (
     <BrowserRouter>
-    <Navbar />
+      <Navbar />
       <div>
         <Routes>
-          <Route path="/" element={<Navigate to="/login" replace />} />
+          <Route path="/" element={<Home />} />
           <Route path="/chat" element={<ChatApp />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>
     </BrowserRouter>
