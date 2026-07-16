@@ -44,7 +44,7 @@ const Register = () => {
 
             <button type="submit">Register</button>
 
-            <p>Already have an account? <Link to="/login">Login Here</Link></p>
+            <p>Already have an account? <Link to="/Login">Login Here</Link></p>
         </form>
     </div>
   )
