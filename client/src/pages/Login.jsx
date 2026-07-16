@@ -1,6 +1,6 @@
 import {useState} from 'react'
-import axios from 'axios'
 import {Link, useNavigate} from 'react-router-dom'
+import {api} from '../config/api'
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -12,7 +12,7 @@ const Login = () => {
     event.preventDefault();
     setError('');
     try {
-      const { data } = await axios.post('http://localhost:5000/api/auth/login', { email, password });
+      const { data } = await api.post('/api/auth/login', { email, password });
       localStorage.setItem('chatToken', data.token);
       localStorage.setItem('chatUser', JSON.stringify(data.user));
       navigate('/chat');
