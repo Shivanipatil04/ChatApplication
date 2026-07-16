@@ -1,3 +1,9 @@
+body {
+	margin: 0;
+	font-family: Arial, sans-serif;
+	background: #f8fafc;
+}
+
 .chat {
 	display: flex;
 	flex-direction: column;
@@ -76,12 +82,6 @@ form button {
 	color: white;
 	border: none;
 	margin-left: 8px;
-}
-
-body {
-	margin: 0;
-	font-family: Arial, sans-serif;
-	background: #f8fafc;
 }
 
 .navbar {
@@ -191,7 +191,7 @@ body {
 	color: #334155;
 }
 
-.auth-page {
+.page {
 	min-height: 100vh;
 	display: flex;
 	align-items: center;
@@ -200,7 +200,7 @@ body {
 	background: linear-gradient(135deg, #eef2ff 0%, #f8fafc 100%);
 }
 
-.auth-card {
+.card {
 	width: 100%;
 	max-width: 420px;
 	background: #ffffff;
@@ -209,27 +209,27 @@ body {
 	box-shadow: 0 20px 45px rgba(15, 23, 42, 0.12);
 }
 
-.auth-card h1 {
+.card h1 {
 	margin: 0 0 8px;
 	font-size: 28px;
 	color: #111827;
 	text-align: center;
 }
 
-.auth-subtitle {
+.subtitle {
 	margin: 0 0 20px;
 	text-align: center;
 	color: #64748b;
 	font-size: 14px;
 }
 
-.auth-form {
+.form {
 	display: flex;
 	flex-direction: column;
 	gap: 12px;
 }
 
-.auth-form input {
+.form input {
 	padding: 12px 14px;
 	border: 1px solid #dbe3f0;
 	border-radius: 12px;
@@ -238,12 +238,12 @@ body {
 	transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.auth-form input:focus {
+.form input:focus {
 	border-color: #6366f1;
 	box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
 }
 
-.auth-button {
+.button {
 	padding: 12px 14px;
 	border: none;
 	border-radius: 12px;
@@ -255,12 +255,12 @@ body {
 	transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.auth-button:hover {
+.button:hover {
 	transform: translateY(-1px);
 	box-shadow: 0 10px 20px rgba(79, 70, 229, 0.2);
 }
 
-.auth-message {
+.message {
 	margin: 0;
 	padding: 10px 12px;
 	border-radius: 10px;
@@ -270,25 +270,25 @@ body {
 	text-align: center;
 }
 
-.auth-link {
+.link {
 	margin-top: 6px;
 	text-align: center;
 	color: #475569;
 	font-size: 14px;
 }
 
-.auth-link a {
+.link a {
 	color: #4f46e5;
 	font-weight: 600;
 	text-decoration: none;
 }
 
-.auth-link a:hover {
+.link a:hover {
 	text-decoration: underline;
 }
 
 @media (max-width: 480px) {
-	.auth-card {
+	.card {
 		padding: 24px 18px;
 	}
 

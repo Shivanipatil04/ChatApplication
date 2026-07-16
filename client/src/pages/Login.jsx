@@ -21,17 +21,17 @@ const Login = () => {
   }
 
   return (
-    <div className="auth-page">
-      <div className="auth-card">
+    <div className="page">
+      <div className="card">
         <h1>Welcome Back</h1>
-        <p className="auth-subtitle">Sign in to continue chatting</p>
+        <p className="subtitle">Sign in to continue chatting</p>
         <form className="auth-form" onSubmit={handleLogin}>
           <input type="email" placeholder="Enter Email" value={email} onChange={(e) => setEmail(e.target.value)} />
           <input type="password" placeholder="Enter Password" value={password} onChange={(e) => setPassword(e.target.value)} />
 
-          <button className="auth-button" type="submit">Login</button>
-          {msg && <p className="auth-message">{msg}</p>}
-          <p className="auth-link">Don't have an account? <Link to="/register">Register Here</Link></p>
+          <button className="button" type="submit">Login</button>
+          {msg && <p className="message">{msg}</p>}
+          <p className="link">Don't have an account? <Link to="/register">Register Here</Link></p>
         </form>
       </div>
     </div>

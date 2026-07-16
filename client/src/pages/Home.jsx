@@ -6,7 +6,6 @@ const Home = () => {
     <div className="home-page">
       <div className="hero-card">
         <p className="hero-badge">Realtime chat app</p>
-        <h1>Talk with friends instantly</h1>
         <p className="hero-text">
           Join the conversation, sign up, and start chatting with your people in real time.
         </p>

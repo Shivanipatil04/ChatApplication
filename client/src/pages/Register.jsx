@@ -32,18 +32,18 @@ const Register = () => {
   }
 
   return (
-    <div className="auth-page">
-      <div className="auth-card">
+    <div className="page">
+      <div className="card">
         <h1>Create Account</h1>
-        <p className="auth-subtitle">Join the chat and start connecting</p>
+        <p className="subtitle">Join the chat and start connecting</p>
         <form className="auth-form" onSubmit={handleSubmit}>
           <input type="text" name="name" placeholder="Enter Name" value={user.name} onChange={handleChange} />
           <input type="email" name="email" placeholder="Enter Email" value={user.email} onChange={handleChange} />
           <input type="password" name="password" placeholder="Enter Password" value={user.password} onChange={handleChange} />
 
-          <button className="auth-button" type="submit">Register</button>
-          {msg && <p className="auth-message">{msg}</p>}
-          <p className="auth-link">Already have an account? <Link to="/login">Login Here</Link></p>
+          <button className="button" type="submit">Register</button>
+          {msg && <p className="message">{msg}</p>}
+          <p className="link">Already have an account? <Link to="/login">Login Here</Link></p>
         </form>
       </div>
     </div>
