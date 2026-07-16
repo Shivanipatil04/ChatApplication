@@ -1,51 +1,45 @@
-import React from 'react'
-import {useState} from 'react'
+import React, { useState } from 'react'
 import axios from 'axios'
-import {Link} from 'react-router-dom'
-import Login from './pages/Login'
+import { Link } from 'react-router-dom'
 
 const Register = () => {
+  const [user, setUser] = useState({
+    name: '',
+    email: '',
+    password: ''
+  })
+  const [msg, setMsg] = useState('')
 
-    const[user, setUser] = useState({
-        name: "",
-        email: "",
-        password:""
-    });
-
-    const handleSubmit = async (e) =>{
-        e.preventDefault();
-        try{
-            const res = await axios.post("http://localthost:5000/api/register",user);
-            console.log(res.data);
-        }
-        catch(err){
-            console.log(err)
-        }
-
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    try {
+      const res = await axios.post('http://localhost:5000/api/register', user)
+      setMsg(res.data.msg)
+    } catch (err) {
+      setMsg(err.response?.data?.msg || 'Registration failed')
     }
+  }
 
-    const handleChange = (e) =>{
-        const{name, value} = e.target;
-        setUser((prevUser)=>({
-            ...prevUser,
-            [name]: value
-        })
-    )}
+  const handleChange = (e) => {
+    const { name, value } = e.target
+    setUser((prevUser) => ({
+      ...prevUser,
+      [name]: value
+    }))
+  }
 
   return (
     <div className="register">
-        <h1>Register Yourself</h1>
-        <form onSubmit={handleSubmit}>
-            <input type="text" placeholder="Enter Name" value={user.name} onChange={(e)=> setName(e.target.value)}/>
+      <h1>Register Yourself</h1>
+      <form onSubmit={handleSubmit}>
+        <input type="text" name="name" placeholder="Enter Name" value={user.name} onChange={handleChange} />
+        <input type="email" name="email" placeholder="Enter Email" value={user.email} onChange={handleChange} />
+        <input type="password" name="password" placeholder="Enter Password" value={user.password} onChange={handleChange} />
 
-            <input type="email" placeholder="Enter Email" value={user.email} onChange={(e)=> setEmail(e.target.value)}/>
-
-            <input type="password" placeholder="Enter Password" value={user.password} onChange={(e)=> setPassword(e.target.value)}/>
-
-            <button type="submit">Register</button>
-
-            <p>Already have an account?<Link to="/login">Login Here</Link></p>
-        </form>
+        <button type="submit">Register</button>
+        {msg && <p>{msg}</p>}
+        <p>Already have an account? <Link to="/login">Login Here</Link></p>
+      </form>
     </div>
   )
 }
