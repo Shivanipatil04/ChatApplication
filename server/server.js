@@ -14,21 +14,30 @@ const GroupMessage = require('./models/GroupMessage');
 
 const app = express();
 const server = http.createServer(app);
-const corsOptions = { origin: true, methods: ['GET', 'POST'] };
+const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
+
+const corsOptions = {
+  origin: CLIENT_URL,
+  credentials: true,
+  methods: ["GET", "POST"],
+};
+
 const io = new Server(server, {
   cors: {
-    origin: true,
-    methods: ['GET', 'POST']
-  }
+    origin: CLIENT_URL,
+    credentials: true,
+    methods: ["GET", "POST"],
+  },
 });
 
 app.use(cors(corsOptions));
 app.use(express.json());
 app.use('/api/auth', authRoutes);
 
-mongoose.connect("mongodb://localhost:27017/chatapp")
-  .then(() => console.log('MongoDB connected'))
-  .catch((err) => console.error('MongoDB connection error:', err));
+mongoose
+  .connect(process.env.MONGO_URI)
+  .then(() => console.log("MongoDB connected"))
+  .catch((err) => console.error("MongoDB connection error:", err));
 
 io.use((socket, next) => {
     try {
