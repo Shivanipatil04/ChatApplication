@@ -52,9 +52,55 @@ const ChatApp = () => {
     navigate('/login');
   }, [navigate]);
 
+<<<<<<< Updated upstream
   useEffect(() => {
     selectedContactRef.current = selectedContact;
   }, [selectedContact]);
+=======
+  useEffect(() => { selectedRef.current = selected; }, [selected]);
+  useEffect(() => { contactsRef.current = contacts; }, [contacts]);
+  useEffect(() => { groupsRef.current = groups; }, [groups]);
+  useEffect(() => { localStreamRef.current = localStream; if (localVideoRef.current) localVideoRef.current.srcObject = localStream; }, [localStream]);
+  useEffect(() => { if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream; }, [remoteStream]);
+
+  const closeCall = useCallback((notify = true) => {
+
+    if (notify && callTargetRef.current) {
+        socketRef.current?.emit("call-end", {
+            targetUserId: callTargetRef.current,
+        });
+    }
+
+    if (peerConnectionRef.current) {
+        peerConnectionRef.current.ontrack = null;
+        peerConnectionRef.current.onicecandidate = null;
+        peerConnectionRef.current.close();
+        peerConnectionRef.current = null;
+    }
+
+    if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+        localStreamRef.current = null;
+    }
+
+    if (localVideoRef.current) {
+        localVideoRef.current.srcObject = null;
+    }
+
+    if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = null;
+    }
+
+    callTargetRef.current = null;
+    queuedCandidatesRef.current = [];
+
+    setLocalStream(null);
+    setRemoteStream(null);
+    setIncomingCall(null);
+    setActiveCall(null);
+
+}, []);
+>>>>>>> Stashed changes
 
   useEffect(() => {
     contactsRef.current = contacts;
@@ -130,17 +176,219 @@ const ChatApp = () => {
       setSocketStatus('Connection failed');
       setError(`Socket connection failed. URL: ${API_URL}`);
     });
+<<<<<<< Updated upstream
+=======
+    socket.on('incoming-call', (call) => {
+      const contact = contactsRef.current.find((entry) => entry.id === call.from.id) || call.from;
+      setIncomingCall({ ...call, contact });
+    });
+    socket.on("call-answered", async ({ answer }) => {
+
+      if (!peerConnectionRef.current) return;
+
+      await peerConnectionRef.current.setRemoteDescription(
+          new RTCSessionDescription(answer)
+      );
+
+      await addQueuedCandidates();
+
+  });
+    socket.on("ice-candidate", async ({ candidate }) => {
+
+    try {
+
+        if (
+            peerConnectionRef.current &&
+            peerConnectionRef.current.remoteDescription
+        ) {
+
+            await peerConnectionRef.current.addIceCandidate(
+                new RTCIceCandidate(candidate)
+            );
+
+        } else {
+
+            queuedCandidatesRef.current.push(candidate);
+
+        }
+
+    } catch (err) {
+
+        console.error("ICE Candidate Error:", err);
+
+    }
+
+});
+    socket.on('call-ended', () => closeCall(false));
+>>>>>>> Stashed changes
 
     socket.on('msg', handleIncomingMessage);
     socket.on('call-user', handleIncomingCall);
     socket.on('answer-call', handleAnswer);
     socket.on('ice-candidate', handleIceCandidate);
 
+<<<<<<< Updated upstream
     return () => socket.disconnect();
   }, [logout, token, user.id]);
 
   const selectContact = async (contact) => {
     setSelectedContact(contact);
+=======
+  const createPeerConnection = (targetUserId, stream) => {
+
+    if (peerConnectionRef.current) {
+        peerConnectionRef.current.ontrack = null;
+        peerConnectionRef.current.onicecandidate = null;
+        peerConnectionRef.current.close();
+        peerConnectionRef.current = null;
+    }
+
+    const peer = new RTCPeerConnection(RTC_CONFIGURATION);
+
+    callTargetRef.current = targetUserId;
+
+    stream.getTracks().forEach(track => {
+        peer.addTrack(track, stream);
+    });
+
+    peer.onicecandidate = ({ candidate }) => {
+        if (candidate) {
+            socketRef.current?.emit("ice-candidate", {
+                targetUserId,
+                candidate,
+            });
+        }
+    };
+
+    peer.ontrack = ({ streams }) => {
+        setRemoteStream(streams[0]);
+    };
+
+    peerConnectionRef.current = peer;
+
+    return peer;
+};
+
+  const addQueuedCandidates = async () => {
+
+    const peer = peerConnectionRef.current;
+
+    if (!peer) return;
+
+    for (const candidate of queuedCandidatesRef.current) {
+
+        try {
+            await peer.addIceCandidate(
+                new RTCIceCandidate(candidate)
+            );
+        } catch (err) {
+            console.error("ICE Candidate Error:", err);
+        }
+
+    }
+
+    queuedCandidatesRef.current = [];
+};
+
+  const startCall = async () => {
+
+    if (activeCall) return;
+
+    if (selected?.type !== "direct") return;
+
+    try {
+
+        const stream =
+            await navigator.mediaDevices.getUserMedia({
+                video: true,
+                audio: true,
+            });
+
+        setLocalStream(stream);
+
+        setActiveCall(selected.data);
+
+        const peer = createPeerConnection(
+            selected.data.id,
+            stream
+        );
+
+        const offer = await peer.createOffer();
+
+        await peer.setLocalDescription(offer);
+
+        socketRef.current.emit("call-user", {
+            targetUserId: selected.data.id,
+            offer,
+        });
+
+    } catch {
+
+        setError(
+            "Camera or microphone access is required."
+        );
+
+        closeCall(false);
+
+    }
+};
+
+  const acceptCall = async () => {
+
+    if (!incomingCall) return;
+
+    if (activeCall) return;
+
+    try {
+
+        const stream =
+            await navigator.mediaDevices.getUserMedia({
+                video: true,
+                audio: true,
+            });
+
+        setLocalStream(stream);
+
+        setActiveCall(incomingCall.contact);
+
+        const peer = createPeerConnection(
+            incomingCall.from.id,
+            stream
+        );
+
+        await peer.setRemoteDescription(
+            new RTCSessionDescription(
+                incomingCall.offer
+            )
+        );
+
+        const answer = await peer.createAnswer();
+
+        await peer.setLocalDescription(answer);
+
+        await addQueuedCandidates();
+
+        socketRef.current.emit("call-answer", {
+            callerId: incomingCall.from.id,
+            answer,
+        });
+
+        setIncomingCall(null);
+
+    } catch {
+
+        setError(
+            "Camera or microphone access is required."
+        );
+
+        closeCall(true);
+
+    }
+};
+
+  const selectChat = async (type, data) => {
+    setSelected({ type, data });
+>>>>>>> Stashed changes
     setMessages([]);
     setError('');
     try {

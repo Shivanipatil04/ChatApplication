@@ -24,9 +24,18 @@ app.use(cors(corsOptions));
 app.use(express.json());
 app.use('/api/auth', authRoutes);
 
-mongoose.connect("mongodb://localhost:27017/chatapp")
-  .then(() => console.log('MongoDB connected'))
-  .catch((err) => console.error('MongoDB connection error:', err));
+mongoose.connect(process.env.MONGO_URI)
+.then(() => {
+    console.log("MongoDB Connected");
+
+    server.listen(PORT, () => {
+        console.log(`Server running on ${PORT}`);
+    });
+
+})
+.catch(err => {
+    console.log(err);
+});
 
 io.use((socket, next) => {
     try {
@@ -75,29 +84,106 @@ io.on('connection', (socket)=>{
         }
     });
 
+<<<<<<< Updated upstream
     socket.on('call-user', ({ recipientId, offer }) => {
     io.to(recipientId).emit('call-user', {
         offer,
         senderId: socket.user.userId,
     })
     })
+=======
+    socket.on('join-group', async ({ groupId }) => {
+        const group = await Group.findOne({ _id: groupId, 'members.userId': socket.user.userId }).select('_id');
+        if (group) socket.join(`group:${groupId}`);
+    });
 
-    socket.on('answer-call', ({ recipientId, answer }) => {
-    io.to(recipientId).emit('answer-call', {
-        answer,
-        senderId: socket.user.userId,
-    })
-    })
+    socket.on('group-msg', async ({ groupId, message }) => {
+        const text = typeof message === 'string' ? message.trim() : '';
+        if (!text || !groupId) return;
+        try {
+            const group = await Group.findOne({ _id: groupId, 'members.userId': socket.user.userId }).select('_id');
+            if (!group) return;
+            const saved = await GroupMessage.create({
+                groupId,
+                senderId: socket.user.userId,
+                username: socket.user.username,
+                msg: text,
+                timeStamp: new Date().toISOString(),
+            });
+            io.to(`group:${groupId}`).emit('group-msg', {
+                id: saved._id.toString(), groupId, senderId: saved.senderId,
+                username: saved.username, msg: saved.msg, timeStamp: saved.timeStamp,
+            });
+        } catch (err) {
+            console.error('Could not save group message:', err);
+        }
+    });
 
-    socket.on('ice-candidate', ({ recipientId, candidate }) => {
-    io.to(recipientId).emit('ice-candidate', {
-        candidate,
-        senderId: socket.user.userId,
-    })
-    })
+    socket.on('call-user', async ({ targetUserId, offer }) => {
+        const sender = await User.findById(socket.user.userId).select('friends username');
 
-    socket.on('disconnect', () => {
-        console.log("User disconnected");
+        if (
+            offer &&
+            sender?.friends.some(friend => friend.userId === targetUserId)
+        ) {
+            io.to(targetUserId).emit('incoming-call', {
+                from: {
+                    id: socket.user.userId,
+                    username: sender.username
+                },
+                offer
+            });
+        }
+    });
+
+    socket.on('call-answer', async ({ callerId, answer }) => {
+        const responder = await User.findById(socket.user.userId).select('friends');
+
+        if (
+            callerId &&
+            answer &&
+            responder?.friends.some(friend => friend.userId === callerId)
+        ) {
+            io.to(callerId).emit('call-answered', {
+                answer
+            });
+        }
+    });
+
+    socket.on('ice-candidate', async ({ targetUserId, candidate }) => {
+        const sender = await User.findById(socket.user.userId).select('friends');
+
+        if (
+            targetUserId &&
+            candidate &&
+            sender?.friends.some(friend => friend.userId === targetUserId)
+        ) {
+            io.to(targetUserId).emit('ice-candidate', {
+                candidate
+            });
+        }
+    });
+
+    socket.on('call-end', async ({ targetUserId }) => {
+        const sender = await User.findById(socket.user.userId).select('friends');
+
+        if (
+            targetUserId &&
+            sender?.friends.some(friend => friend.userId === targetUserId)
+        ) {
+            io.to(targetUserId).emit('call-ended');
+        }
+    });
+    
+    socket.on("disconnect", () => {
+
+        if(currentCall){
+>>>>>>> Stashed changes
+
+        io.to(otherUser).emit("call-ended");
+
+        }
+
     });
 });
 

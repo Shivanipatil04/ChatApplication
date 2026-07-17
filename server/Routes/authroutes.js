@@ -38,20 +38,57 @@ router.post('/register', async (req, res) => {
 
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
-  if (!email?.trim() || !password) return res.status(400).json({ message: 'Email and password are required' });
+
+  if (!email?.trim() || !password) {
+    return res.status(400).json({
+      message: 'Email and password are required'
+    });
+  }
 
   try {
-    const user = await User.findOne({ email: email.trim().toLowerCase() });
-    const validPassword = user && await bcrypt.compare(password, user.password);
-    if (!validPassword) return res.status(401).json({ message: 'Invalid email or password' });
+    const user = await User.findOne({
+      email: email.trim().toLowerCase()
+    });
+
+    if (!user) {
+      return res.status(401).json({
+        message: 'Invalid email or password'
+      });
+    }
+
+    const validPassword = await bcrypt.compare(
+      password,
+      user.password
+    );
+
+    if (!validPassword) {
+      return res.status(401).json({
+        message: 'Invalid email or password'
+      });
+    }
+
     if (!user.username) {
       user.username = await createUniqueUsername(user.name);
       await user.save();
     }
-    return res.json({ token: createToken(user), user: { id: user._id.toString(), name: user.name, username: user.username, email: user.email } });
+
+    const token = createToken(user);
+
+    return res.json({
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        username: user.username,
+        email: user.email
+      }
+    });
+
   } catch (error) {
-    console.error('Login error:', error);
-    return res.status(500).json({ message: 'Could not log in' });
+    console.error("LOGIN ERROR:", error);
+    return res.status(500).json({
+      message: "Could not log in"
+    });
   }
 });
 
