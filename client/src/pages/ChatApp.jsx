@@ -82,7 +82,12 @@ const ChatApp = () => {
     };
     loadData();
 
-    const socket = io(API_URL, { auth: { token } });
+    const socket = io(API_URL, {
+      auth: { token },
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+    });
+
     socketRef.current = socket;
     socket.on('connect_error', logout);
     socket.on('msg', (item) => {

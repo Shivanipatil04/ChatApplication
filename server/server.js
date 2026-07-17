@@ -14,15 +14,15 @@ const GroupMessage = require('./models/GroupMessage');
 
 const app = express();
 const server = http.createServer(app);
-const clientOrigins = ['http://localhost:5173', 'http://localhost:5174'];
+const corsOptions = { origin: true, methods: ['GET', 'POST'] };
 const io = new Server(server, {
   cors: {
-    origin: clientOrigins,
-    methods: ["GET", "POST"]
+    origin: true,
+    methods: ['GET', 'POST']
   }
 });
 
-app.use(cors({ origin: clientOrigins, methods: ['GET', 'POST'] }));
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use('/api/auth', authRoutes);
 
@@ -32,14 +32,21 @@ mongoose.connect("mongodb://localhost:27017/chatapp")
 
 io.use((socket, next) => {
     try {
-        socket.user = authenticateToken(socket.handshake.auth?.token);
+        const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization?.replace('Bearer ', '');
+        socket.user = authenticateToken(token);
         next();
-    } catch {
+    } catch (err) {
+        console.error('Socket auth failed:', err.message);
         next(new Error('Authentication required'));
     }
 });
 
 io.on('connection', (socket)=>{
+    if (!socket.user?.userId) {
+        socket.disconnect();
+        return;
+    }
+
     console.log(`User connected: ${socket.user.email}`);
     socket.join(socket.user.userId);
     Group.find({ 'members.userId': socket.user.userId }).select('_id').lean()
@@ -50,25 +57,26 @@ io.on('connection', (socket)=>{
         const text = typeof message === 'string' ? message.trim() : '';
         if (!text || !recipientId || recipientId === socket.user.userId) return;
 
-        const sender = await User.findById(socket.user.userId).select('friends');
-        const isFriend = sender?.friends.some((friend) => friend.userId === recipientId);
-        if (!isFriend) return;
-
-        const chatData = {
-            senderId: socket.user.userId,
-            recipientId,
-            user: socket.user.name,
-            msg: text,
-            timeStamp: new Date().toISOString()
-        };
-
-        const chatmsg = new Chat(chatData);
         try {
+            const sender = await User.findById(socket.user.userId).select('friends');
+            const isFriend = sender?.friends.some((friend) => friend.userId === recipientId);
+            if (!isFriend) return;
+
+            const chatData = {
+                senderId: socket.user.userId,
+                recipientId,
+                user: socket.user.name,
+                msg: text,
+                timeStamp: new Date().toISOString()
+            };
+
+            const chatmsg = new Chat(chatData);
             await chatmsg.save();
             const savedMessage = { ...chatData, id: chatmsg._id.toString() };
+
             io.to(socket.user.userId).to(recipientId).emit('msg', savedMessage);
         } catch (err) {
-            console.error("Error for storage", err);
+            console.error('Error for storage', err);
         }
     });
 
@@ -127,6 +135,26 @@ io.on('connection', (socket)=>{
         }
     });
 
+    socket.on('call-user', ({ recipientId, offer }) => {
+    io.to(recipientId).emit('call-user', {
+        offer,
+        senderId: socket.user.userId,
+    })
+    })
+
+    socket.on('answer-call', ({ recipientId, answer }) => {
+    io.to(recipientId).emit('answer-call', {
+        answer,
+        senderId: socket.user.userId,
+    })
+    })
+
+    socket.on('ice-candidate', ({ recipientId, candidate }) => {
+    io.to(recipientId).emit('ice-candidate', {
+        candidate,
+        senderId: socket.user.userId,
+    })
+    })
 
     socket.on('disconnect', () => {
         console.log("User disconnected");
@@ -295,6 +323,6 @@ server.on('error', (err) => {
     }
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
     console.log(`Server is Running on port ${PORT}`);
 });

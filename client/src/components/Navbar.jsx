@@ -3,10 +3,11 @@ import { Link, useNavigate } from 'react-router-dom'
 
 const Navbar = () => {
   const navigate = useNavigate()
-  const isLoggedIn = Boolean(localStorage.getItem('isLoggedIn'))
+  const isLoggedIn = Boolean(localStorage.getItem('chatToken'))
 
   const handleLogout = () => {
-    localStorage.removeItem('isLoggedIn')
+    localStorage.removeItem('chatToken')
+    localStorage.removeItem('chatUser')
     navigate('/login')
   }
 
