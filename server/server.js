@@ -41,29 +41,69 @@ io.use((socket, next) => {
     }
 });
 
+// userId -> Set of active socket ids (a user can have multiple tabs/devices open)
+const onlineUsers = new Map();
+
+const broadcastPresence = async (userId, online) => {
+    try {
+        const current = await User.findById(userId).select('friends').lean();
+        const lastSeen = new Date().toISOString();
+        if (!online) await User.findByIdAndUpdate(userId, { lastSeen: new Date() });
+        (current?.friends || []).forEach((friend) => {
+            io.to(friend.userId).emit('presence', { userId, online, lastSeen });
+        });
+    } catch (err) {
+        console.error('Could not broadcast presence:', err);
+    }
+};
+
 io.on('connection', (socket)=>{
     if (!socket.user?.userId) {
         socket.disconnect();
         return;
     }
 
+    const userId = socket.user.userId;
     console.log(`User connected: ${socket.user.email}`);
-    socket.join(socket.user.userId);
-    Group.find({ 'members.userId': socket.user.userId }).select('_id').lean()
+    socket.join(userId);
+    Group.find({ 'members.userId': userId }).select('_id').lean()
         .then((groups) => groups.forEach((group) => socket.join(`group:${group._id}`)))
         .catch((err) => console.error('Could not join group rooms:', err));
 
+    // ---- Presence tracking ----
+    /*if (!onlineUsers.has(userId)) onlineUsers.set(userId, new Set());
+    onlineUsers.get(userId).add(socket.id);
+    if (onlineUsers.get(userId).size === 1) broadcastPresence(userId, true);
+
+    User.findById(userId).select('friends').lean()
+        .then((current) => {
+            const onlineFriendIds = (current?.friends || [])
+                .map((friend) => friend.userId)
+                .filter((id) => onlineUsers.has(id));
+            socket.emit('presence-bulk', { onlineUserIds: onlineFriendIds });
+        })
+        .catch((err) => console.error('Could not load initial presence:', err));
+
+    // ---- Typing indicator ----
+    socket.on('typing', ({ recipientId, groupId, isTyping }) => {
+        if (recipientId) {
+            io.to(recipientId).emit('typing', { userId, isTyping });
+        } else if (groupId) {
+            socket.to(`group:${groupId}`).emit('typing', { userId, username: socket.user.username, groupId, isTyping });
+        }
+    });*/
+
     socket.on('msg', async ({ recipientId, message }) => {
         const text = typeof message === 'string' ? message.trim() : '';
-        if (!text || !recipientId || recipientId === socket.user.userId) return;
+        if (!text || !recipientId || recipientId === userId) return;
 
         try {
-            const sender = await User.findById(socket.user.userId).select('friends');
+            const sender = await User.findById(userId).select('friends');
             const isFriend = sender?.friends.some((friend) => friend.userId === recipientId);
             if (!isFriend) return;
 
             const chatData = {
-                senderId: socket.user.userId,
+                senderId: userId,
                 recipientId,
                 user: socket.user.name,
                 msg: text,
@@ -74,14 +114,14 @@ io.on('connection', (socket)=>{
             await chatmsg.save();
             const savedMessage = { ...chatData, id: chatmsg._id.toString() };
 
-            io.to(socket.user.userId).to(recipientId).emit('msg', savedMessage);
+            io.to(userId).to(recipientId).emit('msg', savedMessage);
         } catch (err) {
             console.error('Error for storage', err);
         }
     });
 
     socket.on('join-group', async ({ groupId }) => {
-        const group = await Group.findOne({ _id: groupId, 'members.userId': socket.user.userId }).select('_id');
+        const group = await Group.findOne({ _id: groupId, 'members.userId': userId }).select('_id');
         if (group) socket.join(`group:${groupId}`);
     });
 
@@ -89,11 +129,11 @@ io.on('connection', (socket)=>{
         const text = typeof message === 'string' ? message.trim() : '';
         if (!text || !groupId) return;
         try {
-            const group = await Group.findOne({ _id: groupId, 'members.userId': socket.user.userId }).select('_id');
+            const group = await Group.findOne({ _id: groupId, 'members.userId': userId }).select('_id');
             if (!group) return;
             const saved = await GroupMessage.create({
                 groupId,
-                senderId: socket.user.userId,
+                senderId: userId,
                 username: socket.user.username,
                 msg: text,
                 timeStamp: new Date().toISOString(),
@@ -108,28 +148,28 @@ io.on('connection', (socket)=>{
     });
 
     socket.on('call-user', async ({ targetUserId, offer }) => {
-        const sender = await User.findById(socket.user.userId).select('friends username');
+        const sender = await User.findById(userId).select('friends username');
         if (offer && sender?.friends.some((friend) => friend.userId === targetUserId)) {
-            io.to(targetUserId).emit('incoming-call', { from: { id: socket.user.userId, username: sender.username }, offer });
+            io.to(targetUserId).emit('incoming-call', { from: { id: userId, username: sender.username }, offer });
         }
     });
 
     socket.on('call-answer', async ({ callerId, answer }) => {
-        const responder = await User.findById(socket.user.userId).select('friends');
+        const responder = await User.findById(userId).select('friends');
         if (callerId && answer && responder?.friends.some((friend) => friend.userId === callerId)) {
             io.to(callerId).emit('call-answered', { answer });
         }
     });
 
     socket.on('ice-candidate', async ({ targetUserId, candidate }) => {
-        const sender = await User.findById(socket.user.userId).select('friends');
+        const sender = await User.findById(userId).select('friends');
         if (targetUserId && candidate && sender?.friends.some((friend) => friend.userId === targetUserId)) {
             io.to(targetUserId).emit('ice-candidate', { candidate });
         }
     });
 
     socket.on('call-end', async ({ targetUserId }) => {
-        const sender = await User.findById(socket.user.userId).select('friends');
+        const sender = await User.findById(userId).select('friends');
         if (targetUserId && sender?.friends.some((friend) => friend.userId === targetUserId)) {
             io.to(targetUserId).emit('call-ended');
         }
@@ -138,33 +178,48 @@ io.on('connection', (socket)=>{
     socket.on('call-user', ({ recipientId, offer }) => {
     io.to(recipientId).emit('call-user', {
         offer,
-        senderId: socket.user.userId,
+        senderId: userId,
     })
     })
 
     socket.on('answer-call', ({ recipientId, answer }) => {
     io.to(recipientId).emit('answer-call', {
         answer,
-        senderId: socket.user.userId,
+        senderId: userId,
     })
     })
 
     socket.on('ice-candidate', ({ recipientId, candidate }) => {
     io.to(recipientId).emit('ice-candidate', {
         candidate,
-        senderId: socket.user.userId,
+        senderId: userId,
     })
     })
 
     socket.on('disconnect', () => {
         console.log("User disconnected");
+        const sockets = onlineUsers.get(userId);
+        if (sockets) {
+            sockets.delete(socket.id);
+            if (sockets.size === 0) {
+                onlineUsers.delete(userId);
+                broadcastPresence(userId, false);
+            }
+        }
     });
 });
 
 app.get('/api/friends', auth, async (req, res) => {
     try {
         const user = await User.findById(req.user.userId).select('friends').lean();
-        res.json((user?.friends || []).map((friend) => ({ id: friend.userId, username: friend.username })));
+        const friendIds = (user?.friends || []).map((friend) => friend.userId);
+        const friendUsers = await User.find({ _id: { $in: friendIds } }).select('lastSeen').lean();
+        const lastSeenById = new Map(friendUsers.map((entry) => [entry._id.toString(), entry.lastSeen]));
+        res.json((user?.friends || []).map((friend) => ({
+            id: friend.userId,
+            username: friend.username,
+            lastSeen: lastSeenById.get(friend.userId) || null,
+        })));
     } catch (err) {
         console.error('Could not load friends:', err);
         res.status(500).json({ message: 'Could not load friends' });
@@ -185,7 +240,7 @@ app.post('/api/friends', auth, async (req, res) => {
         user.friends.push({ userId: friend._id.toString(), username: friend.username });
         friend.friends.push({ userId: user._id.toString(), username: user.username });
         await Promise.all([user.save(), friend.save()]);
-        return res.status(201).json({ friend: { id: friend._id.toString(), username: friend.username } });
+        return res.status(201).json({ friend: { id: friend._id.toString(), username: friend.username, lastSeen: friend.lastSeen } });
     } catch (err) {
         console.error('Could not add friend:', err);
         return res.status(500).json({ message: 'Could not add friend' });

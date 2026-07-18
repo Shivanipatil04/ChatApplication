@@ -5,6 +5,7 @@ const userSchema = new mongoose.Schema({
   username: { type: String, trim: true, lowercase: true, unique: true, sparse: true },
   email: { type: String, required: true, trim: true, lowercase: true, unique: true },
   password: { type: String, required: true },
+  //lastSeen: { type: Date, default: Date.now },
   friends: [{
     userId: { type: String, required: true },
     username: { type: String, required: true },
