@@ -156,54 +156,58 @@ io.on('connection', (socket)=>{
         }
     });
 
+    // ---- WebRTC signaling handlers (single implementation with logging) ----
     socket.on('call-user', async ({ targetUserId, offer }) => {
-        const sender = await User.findById(userId).select('friends username');
-        if (offer && sender?.friends.some((friend) => friend.userId === targetUserId)) {
-            io.to(targetUserId).emit('incoming-call', { from: { id: userId, username: sender.username }, offer });
+        try {
+            console.log(`[webrtc] call-user from ${userId} -> ${targetUserId}`);
+            const sender = await User.findById(userId).select('friends username');
+            if (offer && sender?.friends.some((friend) => friend.userId === targetUserId)) {
+                console.log('[webrtc] forwarding incoming-call to', targetUserId);
+                io.to(targetUserId).emit('incoming-call', { from: { id: userId, username: sender.username }, offer });
+            }
+        } catch (err) {
+            console.error('[webrtc] call-user error:', err);
         }
     });
 
     socket.on('call-answer', async ({ callerId, answer }) => {
-        const responder = await User.findById(userId).select('friends');
-        if (callerId && answer && responder?.friends.some((friend) => friend.userId === callerId)) {
-            io.to(callerId).emit('call-answered', { answer });
+        try {
+            console.log(`[webrtc] call-answer from ${userId} -> ${callerId}`);
+            const responder = await User.findById(userId).select('friends');
+            if (callerId && answer && responder?.friends.some((friend) => friend.userId === callerId)) {
+                console.log('[webrtc] forwarding call-answered to', callerId);
+                io.to(callerId).emit('call-answered', { answer });
+            }
+        } catch (err) {
+            console.error('[webrtc] call-answer error:', err);
         }
     });
 
     socket.on('ice-candidate', async ({ targetUserId, candidate }) => {
-        const sender = await User.findById(userId).select('friends');
-        if (targetUserId && candidate && sender?.friends.some((friend) => friend.userId === targetUserId)) {
-            io.to(targetUserId).emit('ice-candidate', { candidate });
+        try {
+            console.log(`[webrtc] ice-candidate from ${userId} -> ${targetUserId}`);
+            const sender = await User.findById(userId).select('friends');
+            if (targetUserId && candidate && sender?.friends.some((friend) => friend.userId === targetUserId)) {
+                io.to(targetUserId).emit('ice-candidate', { candidate });
+            }
+        } catch (err) {
+            console.error('[webrtc] ice-candidate error:', err);
         }
     });
 
     socket.on('call-end', async ({ targetUserId }) => {
-        const sender = await User.findById(userId).select('friends');
-        if (targetUserId && sender?.friends.some((friend) => friend.userId === targetUserId)) {
-            io.to(targetUserId).emit('call-ended');
+        try {
+            console.log(`[webrtc] call-end from ${userId} -> ${targetUserId}`);
+            const sender = await User.findById(userId).select('friends');
+            if (targetUserId && sender?.friends.some((friend) => friend.userId === targetUserId)) {
+                io.to(targetUserId).emit('call-ended');
+            }
+        } catch (err) {
+            console.error('[webrtc] call-end error:', err);
         }
     });
 
-    socket.on('call-user', ({ recipientId, offer }) => {
-    io.to(recipientId).emit('call-user', {
-        offer,
-        senderId: userId,
-    })
-    })
-
-    socket.on('answer-call', ({ recipientId, answer }) => {
-    io.to(recipientId).emit('answer-call', {
-        answer,
-        senderId: userId,
-    })
-    })
-
-    socket.on('ice-candidate', ({ recipientId, candidate }) => {
-    io.to(recipientId).emit('ice-candidate', {
-        candidate,
-        senderId: userId,
-    })
-    })
+    // removed duplicate/legacy signaling handlers (kept single canonical implementations above)
 
     socket.on('disconnect', () => {
         console.log("User disconnected");

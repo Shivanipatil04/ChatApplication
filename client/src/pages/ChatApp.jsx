@@ -126,7 +126,7 @@ const ChatApp = () => {
     });
 
     socketRef.current = socket;
-    socket.on('connect_error', logout);
+    socket.on('connect_error', (err) => { console.error('[webrtc] socket connect_error', err); logout(); });
     socket.on('msg', (item) => {
       const contactId = item.senderId === user.id ? item.recipientId : item.senderId;
       const contact = contactsRef.current.find((entry) => entry.id === contactId);
@@ -165,34 +165,94 @@ const ChatApp = () => {
       }
     });
     socket.on('incoming-call', (call) => {
+      console.log('[webrtc] incoming-call', call && call.from && call.from.id);
       const contact = contactsRef.current.find((entry) => entry.id === call.from.id) || call.from;
       setIncomingCall({ ...call, contact });
     });
+
     socket.on('call-answered', async ({ answer }) => {
-      if (peerConnectionRef.current) await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(answer));
+      console.log('[webrtc] call-answered received');
+      try {
+        if (!peerConnectionRef.current) {
+          console.warn('[webrtc] call-answered but no peerConnection');
+          return;
+        }
+        await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(answer));
+        console.log('[webrtc] setRemoteDescription (answer) complete');
+        await addQueuedCandidates();
+      } catch (err) {
+        console.error('[webrtc] error handling call-answered', err);
+      }
     });
+
     socket.on('ice-candidate', async ({ candidate }) => {
-      if (peerConnectionRef.current?.remoteDescription) await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
-      else queuedCandidatesRef.current.push(candidate);
+      console.log('[webrtc] received ice-candidate', candidate);
+      try {
+        if (peerConnectionRef.current?.remoteDescription) {
+          await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+          console.log('[webrtc] added remote candidate');
+        } else {
+          queuedCandidatesRef.current.push(candidate);
+          console.log('[webrtc] queued remote candidate');
+        }
+      } catch (err) {
+        console.error('[webrtc] error adding remote candidate', err);
+      }
     });
+
     socket.on('call-ended', () => closeCall(false));
 
     return () => { closeCall(false); socket.disconnect(); };
   }, [authorization, closeCall, logout, token, user.id]);
 
   const createPeerConnection = (targetUserId, stream) => {
+    if (peerConnectionRef.current) {
+      console.warn('[webrtc] createPeerConnection: existing peer detected - closing');
+      try { peerConnectionRef.current.close(); } catch (e) { /* ignore */ }
+      peerConnectionRef.current = null;
+      queuedCandidatesRef.current = [];
+    }
+
     const peer = new RTCPeerConnection(RTC_CONFIGURATION);
     callTargetRef.current = targetUserId;
-    stream.getTracks().forEach((track) => peer.addTrack(track, stream));
-    peer.onicecandidate = ({ candidate }) => candidate && socketRef.current?.emit('ice-candidate', { targetUserId, candidate });
-    peer.ontrack = ({ streams }) => setRemoteStream(streams[0]);
+    stream.getTracks().forEach((track) => {
+      const sender = peer.addTrack(track, stream);
+      console.log('[webrtc] added local track', track.kind, sender && sender.track && sender.track.kind);
+    });
+
+    peer.onicecandidate = ({ candidate }) => {
+      console.log('[webrtc] onicecandidate', candidate);
+      if (candidate) socketRef.current?.emit('ice-candidate', { targetUserId, candidate });
+    };
+
+    peer.ontrack = (event) => {
+      console.log('[webrtc] ontrack', event);
+      const stream = event.streams && event.streams[0];
+      if (stream) {
+        console.log('[webrtc] remote stream received', stream.id);
+        setRemoteStream(stream);
+      }
+    };
+
+    peer.oniceconnectionstatechange = () => console.log('[webrtc] iceConnectionState', peer.iceConnectionState);
+    peer.onconnectionstatechange = () => console.log('[webrtc] connectionState', peer.connectionState);
+
     peerConnectionRef.current = peer;
     return peer;
   };
 
   const addQueuedCandidates = async () => {
     const peer = peerConnectionRef.current;
-    for (const candidate of queuedCandidatesRef.current) await peer.addIceCandidate(new RTCIceCandidate(candidate));
+    if (!peer) return;
+    console.log('[webrtc] addQueuedCandidates count=', queuedCandidatesRef.current.length);
+    for (const candidate of queuedCandidatesRef.current) {
+      try {
+        await peer.addIceCandidate(new RTCIceCandidate(candidate));
+        console.log('[webrtc] added queued candidate', candidate);
+      } catch (err) {
+        console.error('[webrtc] error adding queued candidate', err);
+      }
+    }
     queuedCandidatesRef.current = [];
   };
 
@@ -204,7 +264,9 @@ const ChatApp = () => {
       setActiveCall(selected.data);
       const peer = createPeerConnection(selected.data.id, stream);
       const offer = await peer.createOffer();
+      console.log('[webrtc] created offer');
       await peer.setLocalDescription(offer);
+      console.log('[webrtc] setLocalDescription (offer)');
       socketRef.current?.emit('call-user', { targetUserId: selected.data.id, offer });
     } catch {
       setError('Camera or microphone access is required to start a video call.');
@@ -219,10 +281,14 @@ const ChatApp = () => {
       setLocalStream(stream);
       setActiveCall(incomingCall.contact);
       const peer = createPeerConnection(incomingCall.from.id, stream);
+      console.log('[webrtc] setting remote description (offer)');
       await peer.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
+      console.log('[webrtc] setRemoteDescription (offer) complete');
       await addQueuedCandidates();
       const answer = await peer.createAnswer();
+      console.log('[webrtc] created answer');
       await peer.setLocalDescription(answer);
+      console.log('[webrtc] setLocalDescription (answer)');
       socketRef.current?.emit('call-answer', { callerId: incomingCall.from.id, answer });
       setIncomingCall(null);
     } catch {
