@@ -116,7 +116,23 @@
   padding-bottom: 8px;
 }
 
+/* Visually separate the two list sections so "different different" reads clearly */
+.ww-list-section {
+  padding-bottom: 6px;
+}
+
+.ww-list-section.direct {
+  border-bottom: 8px solid #f7f8fa;
+}
+
+.ww-list-section.groups {
+  background: #fbfbfd;
+}
+
 .ww-section-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin: 12px 16px 4px;
   font-size: 12px;
   font-weight: 700;
@@ -359,6 +375,22 @@
   background: #f0f2f5;
 }
 
+/* ---------- Forward-message sheet (reuses attach-sheet-overlay backdrop) ---------- */
+.ww-forward-sheet {
+  width: 340px;
+  max-height: 70vh;
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, .25);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ww-forward-sheet .ww-popover-list {
+  overflow-y: auto;
+}
+
 /* ---------- Conversation panel ---------- */
 .ww-conversation-panel {
   flex: 1;
@@ -377,6 +409,7 @@
   background: #f0f2f5;
   border-bottom: 1px solid #e9edef;
   flex-shrink: 0;
+  position: relative;
 }
 
 .ww-conversation-identity {
@@ -420,6 +453,10 @@
   font-style: italic;
 }
 
+.ww-status-line.blocked {
+  color: #ef4444;
+}
+
 .ww-header-icons {
   display: flex;
   gap: 6px;
@@ -437,6 +474,24 @@
 
 .ww-header-icons button:hover {
   background: #e9edef;
+}
+
+.ww-header-icons button:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
+
+.ww-blocked-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 13px;
+  padding: 8px 16px;
+  border-bottom: 1px solid #fee2e2;
+  flex-shrink: 0;
 }
 
 .ww-chat {
@@ -474,11 +529,12 @@
   border-radius: 0 8px 8px 8px;
   box-shadow: 0 1px 1px rgba(0,0,0,.1);
   margin-bottom: 3px;
+  position: relative;
 }
 
 .ww-message.me {
   align-self: flex-end;
-  background: #e0e7ff;
+  background: var(--chat-accent, #e0e7ff);
   border-radius: 8px 0 8px 8px;
 }
 
@@ -524,6 +580,56 @@
   line-height: 1.35;
 }
 
+/* ---- New message-type bubbles ---- */
+.ww-image-bubble {
+  display: block;
+  border-radius: 6px;
+  overflow: hidden;
+  max-width: 260px;
+}
+
+.ww-image-bubble img {
+  display: block;
+  width: 100%;
+  max-height: 260px;
+  object-fit: cover;
+}
+
+.ww-file-bubble {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: #f7f8fa;
+  border-radius: 8px;
+  color: #111b21;
+  text-decoration: none;
+  min-width: 180px;
+}
+
+.ww-file-bubble span {
+  font-size: 13.5px;
+  word-break: break-all;
+}
+
+.ww-location-bubble,
+.ww-contact-bubble {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #f7f8fa;
+  border-radius: 8px;
+  color: #4338ca;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ww-contact-bubble {
+  color: #111b21;
+}
+
 .ww-meta {
   display: flex;
   justify-content: flex-end;
@@ -538,7 +644,11 @@
 }
 
 .ww-check {
-  color: #818cf8;
+  color: #94a3b8;
+}
+
+.ww-check.read {
+  color: #34b7f1;
 }
 
 .ww-scroll-fab {
@@ -558,6 +668,38 @@
   cursor: pointer;
 }
 
+/* ---- Emoji picker ---- */
+.ww-emoji-picker {
+  position: absolute;
+  bottom: 66px;
+  left: 16px;
+  width: 280px;
+  max-height: 220px;
+  overflow-y: auto;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .2);
+  padding: 10px;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+  z-index: 50;
+}
+
+.ww-emoji-picker button {
+  border: none;
+  background: none;
+  font-size: 20px;
+  padding: 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.ww-emoji-picker button:hover {
+  background: #f0f2f5;
+}
+
 .ww-inputbar {
   display: flex;
   align-items: center;
@@ -568,13 +710,22 @@
   flex-shrink: 0;
 }
 
-.ww-attach {
+.ww-attach,
+.ww-emoji,
+.ww-camera-btn {
   border: none;
   background: none;
   color: #54656f;
   cursor: pointer;
   display: flex;
   padding: 6px;
+}
+
+.ww-attach:disabled,
+.ww-emoji:disabled,
+.ww-camera-btn:disabled {
+  opacity: .4;
+  cursor: not-allowed;
 }
 
 .ww-inputbar input {
@@ -585,6 +736,11 @@
   outline: none;
   font-size: 14px;
   background: white;
+}
+
+.ww-inputbar input:disabled {
+  background: #e9edef;
+  color: #8696a0;
 }
 
 .ww-send {
@@ -646,6 +802,15 @@
   padding: 14px 18px;
   background: #f0f2f5;
   border-bottom: 1px solid #e9edef;
+  position: relative;
+}
+
+.ww-info-header h2 {
+  flex: 1;
+}
+
+.ww-info-menu-btn {
+  margin-left: auto;
 }
 
 .ww-info-header button {
@@ -699,9 +864,30 @@
 }
 
 .ww-info-sub {
-  margin: 0 0 24px;
+  margin: 0 0 20px;
   color: #667781;
   font-size: 14px;
+}
+
+.ww-block-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 8px;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-weight: 600;
+  font-size: 13.5px;
+  cursor: pointer;
+  margin-bottom: 4px;
+}
+
+.ww-block-btn.blocked {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #15803d;
 }
 
 .ww-info-section {
@@ -728,6 +914,19 @@
   aspect-ratio: 1;
   background: #f0f2f5;
   border-radius: 8px;
+}
+
+.ww-media-thumb {
+  display: block;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.ww-media-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .ww-member-list {
@@ -875,7 +1074,6 @@
 .ww-mobile-tabs { display: none; }
 .ww-fab { display: none; }
 .ww-menu-dropdown { display: none; }
-.ww-emoji, .ww-camera-btn { display: none; }
 .ww-tab-placeholder { display: none; }
 
 .ww-list-header-top {
@@ -936,7 +1134,7 @@
     flex-shrink: 0;
   }
 
-  /* -- Teal app-bar header -- */
+  /* -- App-bar header -- */
   .ww-list-header {
     background: #3730a3;
     color: white;
@@ -1047,7 +1245,7 @@
     z-index: 15;
   }
 
-  /* -- Conversation header teal bar -- */
+  /* -- Conversation header bar -- */
   .ww-conversation-header {
     background: #3730a3;
     padding: 8px 10px;
@@ -1056,6 +1254,7 @@
   .ww-conversation-identity h1 { color: white; font-size: 16px; }
   .ww-status-line { color: rgba(255, 255, 255, .8); }
   .ww-status-line.typing { color: #ffffff; }
+  .ww-status-line.blocked { color: #fecaca; }
   .ww-conversation-identity .ww-avatar { background: rgba(255, 255, 255, .25); }
   .ww-conversation-identity:hover { background: rgba(255, 255, 255, .08); }
   .ww-header-icons button { color: white; }
@@ -1063,33 +1262,24 @@
 
   /* -- Input bar -- */
   .ww-inputbar {
-    background: #f0f2f5;
     gap: 6px;
     padding: 8px 10px;
   }
 
-  .ww-emoji, .ww-camera-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: none;
-    border: none;
-    color: #54656f;
-    padding: 6px;
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-
   .ww-inputbar input {
-    background: white;
     border-radius: 22px;
   }
 
-  .ww-send { background: #4f46e5; }
+  .ww-emoji-picker {
+    left: 8px;
+    right: 8px;
+    width: auto;
+  }
 
   .ww-attach-sheet-overlay { align-items: flex-end; }
 
-  .ww-attach-sheet {
+  .ww-attach-sheet,
+  .ww-forward-sheet {
     width: 100%;
     border-radius: 18px 18px 0 0;
     padding: 26px 20px 34px;
@@ -1100,6 +1290,690 @@
 
   .ww-info-panel { width: 100%; }
 
+  .ww-group-video-grid { grid-template-columns: 1fr; }
+
   .ww-video-grid { flex-direction: column; }
   .ww-video-grid video { width: 100%; height: 200px; }
+}
+
+/* ---- Group call picker ---- */
+.ww-call-picker-hint {
+  margin: 0;
+  padding: 8px 16px 0;
+  font-size: 12.5px;
+  color: #667781;
+}
+
+.ww-call-pick-row {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.ww-call-pick-row input[type="checkbox"] {
+  margin: 0;
+}
+
+.ww-start-call-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 4px 16px 16px;
+  padding: 11px;
+  border: none;
+  border-radius: 8px;
+  background: #4f46e5;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ww-start-call-btn:disabled {
+  background: #c7d2fe;
+  cursor: not-allowed;
+}
+
+/* ---- Group call video grid (mesh, up to 4 tiles) ---- */
+.ww-group-video-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.ww-group-video-tile {
+  position: relative;
+  background: #111827;
+  border-radius: 12px;
+  overflow: hidden;
+  aspect-ratio: 4 / 3;
+}
+
+.ww-group-video-tile video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.ww-group-video-label {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  background: rgba(0, 0, 0, .55);
+  color: white;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+/* ---- Calls panel (desktop rail + mobile CALLS tab) ---- */
+.ww-call-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #f0f2f5;
+}
+
+.ww-call-row-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ww-call-row-body strong {
+  font-size: 15px;
+  color: #111b21;
+}
+
+.ww-call-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  color: #667781;
+}
+
+.ww-call-row-meta.missed {
+  color: #ef4444;
+}
+
+.ww-call-row-action {
+  border: none;
+  background: none;
+  color: #4f46e5;
+  cursor: pointer;
+  display: flex;
+  padding: 8px;
+  border-radius: 50%;
+}
+
+.ww-call-row-action:hover {
+  background: #eef2ff;
+}
+
+/* ---- 3-dot chat menu ---- */
+.ww-chat-menu-dropdown {
+  position: absolute;
+  top: 54px;
+  right: 16px;
+  background: white;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
+  z-index: 40;
+  overflow: hidden;
+  min-width: 200px;
+}
+
+.ww-chat-menu-dropdown button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 11px 16px;
+  border: none;
+  background: white;
+  font-size: 14px;
+  color: #111b21;
+  cursor: pointer;
+}
+
+.ww-chat-menu-dropdown button:hover {
+  background: #f0f2f5;
+}
+
+/* ---- In-chat search bar ---- */
+.ww-chat-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  background: #f0f2f5;
+  border-bottom: 1px solid #e9edef;
+  color: #54656f;
+  flex-shrink: 0;
+}
+
+.ww-chat-search-bar input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+  color: #111b21;
+}
+
+.ww-chat-search-bar button {
+  border: none;
+  background: none;
+  color: #54656f;
+  cursor: pointer;
+  display: flex;
+}
+
+.ww-header-icons button.active,
+.ww-rail-icons button.active {
+  background: #e0e7ff;
+  color: #4338ca;
+}
+
+/* ---- Call-log message bubble ---- */
+.ww-message.call-log {
+  align-self: center;
+  background: #eef2ff;
+  color: #4338ca;
+  border-radius: 10px;
+  max-width: 80%;
+}
+
+.ww-call-log-body {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  padding: 2px 4px;
+}
+
+/* ---- Voice message bubble ---- */
+.ww-audio-bubble audio {
+  height: 34px;
+  max-width: 240px;
+}
+
+/* ---- Recording indicator (replaces text input while recording) ---- */
+.ww-recording-indicator {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 20px;
+  background: white;
+  color: #ef4444;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ww-rec-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #ef4444;
+  animation: ww-rec-pulse 1s infinite ease-in-out;
+}
+
+@keyframes ww-rec-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .3; }
+}
+
+.ww-send.ww-mic.recording {
+  background: #ef4444;
+}
+
+/* ---- Per-message delete/forward menu ---- */
+.ww-msg-menu-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  border: none;
+  background: rgba(255, 255, 255, .6);
+  color: #54656f;
+  border-radius: 50%;
+  padding: 3px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .15s ease;
+  display: flex;
+}
+
+.ww-message:hover .ww-msg-menu-btn {
+  opacity: 1;
+}
+
+.ww-msg-menu {
+  position: absolute;
+  top: 26px;
+  right: 4px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .2);
+  z-index: 25;
+  overflow: hidden;
+  min-width: 170px;
+}
+
+.ww-msg-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 9px 12px;
+  border: none;
+  background: white;
+  font-size: 13px;
+  color: #111b21;
+  cursor: pointer;
+}
+
+.ww-msg-menu button:hover {
+  background: #f7f8fa;
+}
+
+.ww-msg-menu button:nth-child(2),
+.ww-msg-menu button:nth-child(3) {
+  color: #b91c1c;
+}
+
+.ww-msg-menu button:nth-child(2):hover,
+.ww-msg-menu button:nth-child(3):hover {
+  background: #fef2f2;
+}
+
+.ww-bubble-text.deleted {
+  font-style: italic;
+  color: #8696a0;
+}
+
+/* ---- Notice toast (non-error info, e.g. "Copied to clipboard") ---- */
+.ww-auth-notice {
+  position: absolute;
+  bottom: 70px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #ecfdf5;
+  color: #065f46;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+/* ---- Direct / Groups list toggle ---- */
+.ww-list-view-toggle {
+  display: flex;
+  gap: 6px;
+  margin: 4px 16px 8px;
+  padding: 3px;
+  background: #f0f2f5;
+  border-radius: 10px;
+}
+
+.ww-list-view-toggle button {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 0;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: #54656f;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ww-list-view-toggle button.active {
+  background: white;
+  color: #4338ca;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .12);
+}
+
+/* ---- Chat menu divider + group-info variant ---- */
+.ww-menu-divider {
+  border-top: 1px solid #f0f2f5;
+  margin: 4px 0;
+}
+
+.ww-chat-menu-dropdown.group-info {
+  top: 52px;
+  right: 18px;
+}
+
+/* ---- Chat theme picker ---- */
+.ww-theme-sheet {
+  width: 300px;
+  background: white;
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, .25);
+}
+
+.ww-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  padding: 16px 0 8px;
+}
+
+.ww-theme-grid button {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 3px solid transparent;
+  cursor: pointer;
+}
+
+.ww-theme-grid button.active {
+  border-color: #4338ca;
+}
+
+.ww-theme-reset {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #e9edef;
+  border-radius: 8px;
+  background: none;
+  color: #54656f;
+  font-weight: 600;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+
+/* ---- Disappearing-messages banner ---- */
+.ww-disappearing-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 13px;
+  padding: 8px 16px;
+  border-bottom: 1px solid #e0e7ff;
+  flex-shrink: 0;
+}
+
+/* ---- Inline group name/description editing ---- */
+.ww-inline-edit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.ww-inline-edit input {
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #d1d7db;
+  font-size: 15px;
+  outline: none;
+}
+
+.ww-inline-edit input:focus {
+  border-color: #4f46e5;
+}
+
+.ww-inline-edit button {
+  border: none;
+  border-radius: 6px;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.ww-inline-edit button[type="submit"] {
+  background: #4f46e5;
+  color: white;
+}
+
+.ww-inline-edit button[type="button"] {
+  background: #f0f2f5;
+  color: #54656f;
+}
+
+.ww-inline-edit-block {
+  width: 100%;
+}
+
+.ww-inline-edit-block textarea {
+  width: 100%;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #d1d7db;
+  font-size: 13.5px;
+  font-family: inherit;
+  resize: vertical;
+  outline: none;
+}
+
+.ww-inline-edit-block textarea:focus {
+  border-color: #4f46e5;
+}
+
+.ww-inline-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ww-inline-edit-actions button {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ww-inline-edit-actions button[type="submit"] {
+  background: #4f46e5;
+  color: white;
+}
+
+.ww-inline-edit-actions button[type="button"] {
+  background: #f0f2f5;
+  color: #54656f;
+}
+
+.ww-description-block {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.ww-description-block p {
+  margin: 0;
+  font-size: 13.5px;
+  color: #111b21;
+  line-height: 1.5;
+}
+
+.ww-description-block p.placeholder {
+  color: #8696a0;
+  font-style: italic;
+}
+
+/* ---- Toggle switches (Notifications / Media visibility / Disappearing / Lock) ---- */
+.ww-info-toggles {
+  width: 100%;
+  border-top: 8px solid #f0f2f5;
+  margin-top: 18px;
+  padding-top: 4px;
+}
+
+.ww-info-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  font-size: 14px;
+  color: #111b21;
+}
+
+.ww-info-toggle-row span {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ww-switch {
+  position: relative;
+  display: inline-block;
+  width: 38px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+.ww-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.ww-switch-slider {
+  position: absolute;
+  inset: 0;
+  background: #d1d5db;
+  border-radius: 22px;
+  cursor: pointer;
+  transition: background .15s ease;
+}
+
+.ww-switch-slider::before {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  left: 3px;
+  top: 3px;
+  background: white;
+  border-radius: 50%;
+  transition: transform .15s ease;
+}
+
+.ww-switch input:checked + .ww-switch-slider {
+  background: #4f46e5;
+}
+
+.ww-switch input:checked + .ww-switch-slider::before {
+  transform: translateX(16px);
+}
+
+/* ---- Members section: add button + admin badge ---- */
+.ww-section-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.ww-section-header-row h4 {
+  margin: 0;
+}
+
+.ww-add-members-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: none;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.ww-member-name-col {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ww-admin-badge {
+  font-size: 11px;
+  color: #4338ca;
+  font-weight: 600;
+}
+
+.ww-add-members-list {
+  margin: 0 16px 12px;
+}
+
+/* ---- Info-panel action rows (favourites / list / clear / exit / report) ---- */
+.ww-info-actions {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  border-top: 8px solid #f0f2f5;
+  margin-top: 18px;
+  padding-top: 6px;
+}
+
+.ww-info-actions button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 12px 4px;
+  border: none;
+  background: none;
+  font-size: 14px;
+  color: #111b21;
+  cursor: pointer;
+}
+
+.ww-info-actions.danger button {
+  color: #b91c1c;
+}
+
+.ww-favourite-filled {
+  fill: #f59e0b;
+  color: #f59e0b !important;
+}
+
+.ww-group-created {
+  width: 100%;
+  text-align: center;
+  font-size: 12px;
+  color: #8696a0;
+  margin: 16px 0 4px;
+}
+
+@media (max-width: 700px) {
+  .ww-chat-menu-dropdown {
+    right: 8px;
+    left: 8px;
+    width: auto;
+  }
 }
