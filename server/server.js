@@ -21,14 +21,14 @@ const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
 const corsOptions = {
   origin: CLIENT_URL,
   credentials: true,
-  methods: ["GET", "POST", "DELETE"],
+  methods: ["GET", "POST", "PATCH", "DELETE"],
 };
 
 const io = new Server(server, {
   cors: {
     origin: CLIENT_URL,
     credentials: true,
-    methods: ["GET", "POST", "DELETE"],
+    methods: ["GET", "POST", "PATCH", "DELETE"],
   },
   // audio/image/file messages travel over the socket as base64 - bump the default 1MB cap a bit
   maxHttpBufferSize: 8 * 1024 * 1024,
