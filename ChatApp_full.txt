@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
 import { useNavigate } from 'react-router-dom'
 import { API_URL, api } from '../config/api'
@@ -12,7 +12,7 @@ import {
   User as UserIcon, Phone, PhoneIncoming, PhoneOutgoing, PhoneMissed,
   Trash2, Users, Link2, Share2, Info, StopCircle, Forward, Ban, ShieldCheck,
   MessageCircle, Clock, Palette, Download, Flag, Star, Bell, BellOff, Lock,
-  UserPlus, Pencil, Eye, MicOff, VideoOff, CircleDot, Settings2,
+  UserPlus, Pencil, Eye, MicOff, VideoOff,
 } from 'lucide-react'
 import './ChatApp.css'
 
@@ -20,9 +20,9 @@ const MAX_GROUP_CALL_PARTICIPANTS = 4;
 const THEME_COLORS = ['#e0e7ff', '#fde68a', '#bbf7d0', '#fecaca', '#fbcfe8', '#bae6fd', '#ddd6fe', '#fed7aa'];
 const CHAT_SETTINGS_KEY = 'ww-chat-settings';
 const EMOJIS = [
-  '😀','😂','😍','😊','👍','🙏','🎉','❤️','😢','😮',
-  '🔥','👏','😅','🤔','😎','🥳','😴','🙌','💯','✨',
-  '😇','🤗','😜','😭','🙃','😬','🤝','👀','🚀','🎂',
+  'ðŸ˜€','ðŸ˜‚','ðŸ˜','ðŸ˜Š','ðŸ‘','ðŸ™','ðŸŽ‰','â¤ï¸','ðŸ˜¢','ðŸ˜®',
+  'ðŸ”¥','ðŸ‘','ðŸ˜…','ðŸ¤”','ðŸ˜Ž','ðŸ¥³','ðŸ˜´','ðŸ™Œ','ðŸ’¯','âœ¨',
+  'ðŸ˜‡','ðŸ¤—','ðŸ˜œ','ðŸ˜­','ðŸ™ƒ','ðŸ˜¬','ðŸ¤','ðŸ‘€','ðŸš€','ðŸŽ‚',
 ];
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 
@@ -51,19 +51,12 @@ const formatDuration = (seconds = 0) => {
 
 const previewFor = (item) => {
   switch (item.type) {
-    case 'audio': return '🎤 Voice message';
-    case 'image': return '📷 Photo';
-    case 'file': return `📄 ${item.fileName || 'Document'}`;
-    case 'location': return '📍 Location';
-    case 'contact': return '👤 Contact';
-    case 'poll': return `📊 Poll: ${item.poll?.question || 'Poll'}`;
-    case 'call': {
-      const isAudio = item.callInfo?.callType === 'audio';
-      const type = isAudio ? 'voice' : 'video';
-      if (item.callInfo?.status === 'missed') return `📞 Missed ${type} call`;
-      if (item.callInfo?.status === 'declined') return `📞 Declined ${type} call`;
-      return `📞 ${type.charAt(0).toUpperCase() + type.slice(1)} call`;
-    }
+    case 'audio': return 'ðŸŽ¤ Voice message';
+    case 'image': return 'ðŸ“· Photo';
+    case 'file': return `ðŸ“„ ${item.fileName || 'Document'}`;
+    case 'location': return 'ðŸ“ Location';
+    case 'contact': return 'ðŸ‘¤ Contact';
+    case 'call': return item.callInfo?.status === 'missed' ? 'ðŸ“ž Missed call' : 'ðŸ“ž Call';
     default: return item.msg;
   }
 };
@@ -123,7 +116,7 @@ const SelfProfilePanel = ({ authorization }) => {
         {avatarPreview
           ? <img className="ww-profile-avatar-img" src={avatarPreview} alt="avatar" />
           : <div className="ww-info-avatar">{profile.name?.charAt(0)?.toUpperCase() || '?'}</div>}
-        <div className="ww-profile-avatar-overlay">📷</div>
+        <div className="ww-profile-avatar-overlay">ðŸ“·</div>
         <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleAvatarChange} />
       </div>
       <p className="ww-info-sub">@{profile.username}</p>
@@ -143,7 +136,7 @@ const SelfProfilePanel = ({ authorization }) => {
       </div>
       {msg && <p className="ww-auth-notice" style={{ position: 'static', marginTop: 4 }}>{msg}</p>}
       {err && <p className="ww-auth-error" style={{ position: 'static', marginTop: 4 }}>{err}</p>}
-      <button type="submit" className="ww-profile-save-btn" disabled={loading}>{loading ? 'Saving…' : 'Save Profile'}</button>
+      <button type="submit" className="ww-profile-save-btn" disabled={loading}>{loading ? 'Savingâ€¦' : 'Save Profile'}</button>
     </form>
   );
 };
@@ -167,74 +160,6 @@ const ChatApp = () => {
   const [incomingCall, setIncomingCall] = useState(null);
   const [activeCall, setActiveCall] = useState(null);
   const [localStream, setLocalStream] = useState(null);
-
-  // ---- Call UI state ----
-  const [callDuration, setCallDuration] = useState(0);       // seconds elapsed
-  const [callMinimized, setCallMinimized] = useState(false); // floating PiP mode
-  const [speakerOn, setSpeakerOn] = useState(true);          // speaker vs earpiece (visual toggle)
-  const [switchedToVideo, setSwitchedToVideo] = useState(false); // escalated voice→video
-  const callTimerRef = useRef(null);
-
-  // ---- Ringtone (Web Audio API — no external file needed) ----
-  const ringtoneRef = useRef(null); // AudioContext
-
-  const startRingtone = () => {
-    stopRingtone();
-    try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      ringtoneRef.current = ctx;
-      let playing = true;
-
-      const playRing = () => {
-        if (!playing || ctx.state === 'closed') return;
-        // Two-tone WhatsApp-style ring: 440 Hz then 480 Hz, 0.4s each, pause 2s
-        const schedule = [
-          { freq: 440, start: 0,   dur: 0.4 },
-          { freq: 480, start: 0.4, dur: 0.4 },
-        ];
-        const totalCycle = 2.2; // ring + silence
-        schedule.forEach(({ freq, start, dur }) => {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.type = 'sine';
-          osc.frequency.value = freq;
-          gain.gain.setValueAtTime(0, ctx.currentTime + start);
-          gain.gain.linearRampToValueAtTime(0.35, ctx.currentTime + start + 0.02);
-          gain.gain.setValueAtTime(0.35, ctx.currentTime + start + dur - 0.02);
-          gain.gain.linearRampToValueAtTime(0, ctx.currentTime + start + dur);
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-          osc.start(ctx.currentTime + start);
-          osc.stop(ctx.currentTime + start + dur);
-        });
-        setTimeout(() => { if (playing && ctx.state !== 'closed') playRing(); }, totalCycle * 1000);
-      };
-
-      playRing();
-      // Store stop fn on the context so stopRingtone can close it
-      ctx._stop = () => { playing = false; };
-    } catch { /* audio not supported — silent fail */ }
-  };
-
-  const stopRingtone = () => {
-    if (ringtoneRef.current) {
-      try {
-        ringtoneRef.current._stop?.();
-        ringtoneRef.current.close();
-      } catch { /* ignore */ }
-      ringtoneRef.current = null;
-    }
-  };
-
-  // Start ringtone when incoming call arrives, stop when it's gone
-  useEffect(() => {
-    if (incomingCall) startRingtone();
-    else stopRingtone();
-    return stopRingtone; // eslint-disable-line react-hooks/exhaustive-deps
-  }, [!!incomingCall]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Also stop ringtone when call becomes active (answered)
-  useEffect(() => { if (activeCall) stopRingtone(); }, [activeCall]); // eslint-disable-line
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
   const [remoteStream, setRemoteStream] = useState(null);
@@ -247,14 +172,6 @@ const ChatApp = () => {
   const [infoPanel, setInfoPanel] = useState(null);
   const [activeTab, setActiveTab] = useState('chats');
   const [showCallsPanel, setShowCallsPanel] = useState(false);
-
-  // ---- Status ----
-  const [statusList, setStatusList] = useState([]);        // contacts' statuses
-  const [myStatus, setMyStatus] = useState(null);          // current user's own status
-  const [viewingStatus, setViewingStatus] = useState(null); // { userId, items[], index }
-  const [newStatusText, setNewStatusText] = useState('');
-  const [showAddStatus, setShowAddStatus] = useState(false);
-  const [statusLoaded, setStatusLoaded] = useState(false);
   const [onlineUserIds, setOnlineUserIds] = useState(() => new Set());
   const [lastSeenMap, setLastSeenMap] = useState({});
   const [typingMap, setTypingMap] = useState({});
@@ -333,20 +250,6 @@ const ChatApp = () => {
   const [editingMessageId, setEditingMessageId] = useState(null);
   const [editingMessageText, setEditingMessageText] = useState('');
 
-  // ---- Poll creation ----
-  const [showPollModal, setShowPollModal] = useState(false);
-  const [pollQuestion, setPollQuestion] = useState('');
-  const [pollOptions, setPollOptions] = useState(['', '']);
-  const [pollAllowMultiple, setPollAllowMultiple] = useState(false);
-
-  // ---- Contact bubble menu ----
-  const [contactMenuMsgId, setContactMenuMsgId] = useState(null);
-
-  // ---- Calls panel menu ----
-  const [showCallsMenu, setShowCallsMenu] = useState(false);
-  const [showCallSettings, setShowCallSettings] = useState(false);
-  const [scheduledCalls, setScheduledCalls] = useState([]);
-
   // ---- Refs ----
   const socketRef = useRef(null);
   const selectedRef = useRef(null);
@@ -390,23 +293,7 @@ const ChatApp = () => {
   });
 
   useEffect(() => { setIncomingCall(directCall.incomingCall); }, [directCall.incomingCall]);
-  useEffect(() => {
-    setActiveCall(directCall.activeCall);
-    if (directCall.activeCall) {
-      // start duration timer
-      setCallDuration(0);
-      setSwitchedToVideo(false);
-      setCallMinimized(false);
-      callTimerRef.current = setInterval(() => setCallDuration((s) => s + 1), 1000);
-    } else {
-      clearInterval(callTimerRef.current);
-      callTimerRef.current = null;
-      setCallDuration(0);
-      setCallMinimized(false);
-      setSwitchedToVideo(false);
-    }
-    return () => clearInterval(callTimerRef.current);
-  }, [directCall.activeCall]);
+  useEffect(() => { setActiveCall(directCall.activeCall); }, [directCall.activeCall]);
   useEffect(() => { setLocalStream(directCall.localStream); }, [directCall.localStream]);
   useEffect(() => { setIsMicMuted(directCall.isMicMuted); }, [directCall.isMicMuted]);
   useEffect(() => { setIsCameraOff(directCall.isCameraOff); }, [directCall.isCameraOff]);
@@ -437,44 +324,6 @@ const ChatApp = () => {
   const closeCall = useCallback((notify = true) => { directCall.closeCall(notify); }, [directCall]);
   const toggleMic = () => directCall.toggleMic();
   const toggleCamera = () => directCall.toggleCamera();
-
-  // ---- Global click-outside handler ----
-  // Closes any open popover/dropdown/panel when the user clicks
-  // anywhere outside the relevant UI element.
-  useEffect(() => {
-    const handleGlobalClick = (e) => {
-      const t = e.target;
-      // These are containers — clicks inside them should NOT close anything
-      if (
-        t.closest('.ww-popover') ||
-        t.closest('.ww-chat-menu-dropdown') ||
-        t.closest('.ww-attach-sheet') ||
-        t.closest('.ww-forward-sheet') ||
-        t.closest('.ww-theme-sheet') ||
-        t.closest('.ww-emoji-picker') ||
-        t.closest('.ww-global-search-results') ||
-        t.closest('.ww-msg-menu') ||
-        t.closest('.ww-reaction-picker') ||
-        t.closest('.ww-three-dot-popup') ||
-        t.closest('.ww-list-panel') ||
-        t.closest('.ww-info-panel') ||
-        t.closest('.ww-call-modal') ||
-        t.closest('[data-popover-trigger]')
-      ) return;
-
-      // Clicking in the conversation area → close sidebar popovers + calls panel
-      setActivePopover(null);
-      setShowEmojiPicker(false);
-      setMessageMenuId(null);
-      setReactionPickerMessageId(null);
-      setContactMenuMsgId(null);
-      setShowCallsMenu(false);
-      setShowCallsPanel(false);
-    };
-
-    document.addEventListener('mousedown', handleGlobalClick, true);
-    return () => document.removeEventListener('mousedown', handleGlobalClick, true);
-  }, []);
   const toggleGroupMic = () => groupCallHook.toggleGroupMic();
   const toggleGroupCamera = () => groupCallHook.toggleGroupCamera();
   const declineCall = useCallback(() => { directCall.declineCall(); }, [directCall]);
@@ -583,11 +432,6 @@ const ChatApp = () => {
       setMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, starredBy } : m));
     });
 
-    // Poll vote/close updates
-    socket.on('poll-updated', ({ messageId, poll }) => {
-      setMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, poll } : m));
-    });
-
     return () => { socket.disconnect(); };
   }, [authorization, loadCallHistory, logout, token, user.id]);
 
@@ -612,34 +456,11 @@ const ChatApp = () => {
     });
   };
 
-  const startCall = async (contactOverride, audioOnly = false) => {
+  const startCall = async (contactOverride) => {
     const target = contactOverride || (selected?.type === 'direct' ? selected.data : null);
     if (!target || isBlocked) return;
-    try { await directCall.startCall(target, audioOnly); }
-    catch (e) { setError(e?.message || 'Microphone/camera access is required.'); directCall.closeCall(false); }
-  };
-
-  const startAudioCall = (contactOverride) => startCall(contactOverride, true);
-
-  // Escalate a voice call to video mid-call
-  const escalateToVideo = async () => {
-    if (switchedToVideo) return;
-    try {
-      const videoStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-      const videoTrack = videoStream.getVideoTracks()[0];
-      const peer = directCall.peerConnectionRef?.current;
-      if (peer) {
-        const sender = peer.getSenders().find((s) => s.track?.kind === 'video');
-        if (sender) await sender.replaceTrack(videoTrack);
-        else peer.addTrack(videoTrack, localStream);
-      }
-      // Merge video track into local stream display
-      if (localVideoRef.current) {
-        const merged = new MediaStream([...localStream.getTracks(), videoTrack]);
-        localVideoRef.current.srcObject = merged;
-      }
-      setSwitchedToVideo(true);
-    } catch { setError('Could not access camera to switch to video.'); }
+    try { await directCall.startCall(target); }
+    catch (e) { setError(e?.message || 'Camera or microphone access is required.'); directCall.closeCall(false); }
   };
 
   const acceptCall = async () => {
@@ -711,17 +532,16 @@ const ChatApp = () => {
       const recorder = new MediaRecorder(stream);
       audioChunksRef.current = [];
       recorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
-      recorder.onstop = async () => {
+      recorder.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
         const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        try {
-          const file = new File([blob], `voice_${Date.now()}.webm`, { type: 'audio/webm' });
-          const { url } = await uploadToCloudinary(file);
-          if (selected.type === 'group') socketRef.current?.emit('group-msg', { groupId: selected.data.id, type: 'audio', audioData: url });
-          else socketRef.current?.emit('msg', { recipientId: selected.data.id, type: 'audio', audioData: url });
-        } catch (e) {
-          setError(e?.response?.data?.message || 'Could not upload voice message.');
-        }
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const audioData = reader.result;
+          if (selected.type === 'group') socketRef.current?.emit('group-msg', { groupId: selected.data.id, type: 'audio', audioData });
+          else socketRef.current?.emit('msg', { recipientId: selected.data.id, type: 'audio', audioData });
+        };
+        reader.readAsDataURL(blob);
       };
       recorder.start();
       mediaRecorderRef.current = recorder;
@@ -738,64 +558,9 @@ const ChatApp = () => {
     setIsRecording(false);
   };
 
-  // ---- Camera capture (live camera → canvas snapshot) ----
-  const [showCameraModal, setShowCameraModal] = useState(false);
-  const cameraStreamRef = useRef(null);
-  const cameraVideoRef = useRef(null);
-
-  const openCamera = async () => {
-    if (!selected || isBlocked) return;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
-      cameraStreamRef.current = stream;
-      setShowCameraModal(true);
-      // Attach stream to video element after modal renders
-      setTimeout(() => {
-        if (cameraVideoRef.current) cameraVideoRef.current.srcObject = stream;
-      }, 50);
-    } catch { setError('Could not access camera. Please allow camera permission.'); }
-  };
-
-  const capturePhoto = async () => {
-    const video = cameraVideoRef.current;
-    if (!video) return;
-    const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    canvas.getContext('2d').drawImage(video, 0, 0);
-    canvas.toBlob(async (blob) => {
-      try {
-        const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
-        const { url } = await uploadToCloudinary(file);
-        sendAttachment({ type: 'image', fileData: url, fileName: file.name, fileMime: 'image/jpeg' });
-        closeCamera();
-      } catch (e) {
-        setError(e?.response?.data?.message || 'Could not upload photo.');
-      }
-    }, 'image/jpeg', 0.85);
-  };
-
-  const closeCamera = () => {
-    cameraStreamRef.current?.getTracks().forEach((t) => t.stop());
-    cameraStreamRef.current = null;
-    setShowCameraModal(false);
-  };
-
   const handleMicClick = () => { isRecording ? stopRecording() : startRecording(); };
 
   // ---- Attachments ----
-  // Uploads a File object to Cloudinary via the server, then sends the
-  // resulting URL (never raw base64) over the socket.
-  const uploadToCloudinary = async (file) => {
-    const form = new FormData();
-    form.append('file', file);
-    const res = await api.post('/api/upload', form, {
-      ...authorization,
-      headers: { ...authorization?.headers, 'Content-Type': 'multipart/form-data' },
-    });
-    return res.data; // { url, resourceType, originalName, mimeType }
-  };
-
   const sendAttachment = (payload) => {
     if (!selected) return;
     if (selected.type === 'group') socketRef.current?.emit('group-msg', { groupId: selected.data.id, ...payload });
@@ -804,13 +569,11 @@ const ChatApp = () => {
 
   const sendFile = async (file, type) => {
     if (!file || !selected || isBlocked) return;
-    if (file.size > MAX_ATTACHMENT_BYTES) { setError('File too large (max 20MB).'); return; }
+    if (file.size > MAX_ATTACHMENT_BYTES) { setError('File too large (max 5MB).'); return; }
     try {
-      const { url, mimeType } = await uploadToCloudinary(file);
-      sendAttachment({ type, fileData: url, fileName: file.name, fileMime: mimeType || file.type });
-    } catch (e) {
-      setError(e?.response?.data?.message || 'Upload failed. Check Cloudinary credentials.');
-    }
+      const fileData = await readFileAsDataURL(file);
+      sendAttachment({ type, fileData, fileName: file.name, fileMime: file.type });
+    } catch { setError('Could not read that file.'); }
   };
 
   const handleGallerySelect = (e) => { const f = e.target.files?.[0]; e.target.value = ''; setActivePopover(null); if (f) sendFile(f, 'image'); };
@@ -831,24 +594,6 @@ const ChatApp = () => {
     if (!selected || isBlocked) return;
     sendAttachment({ type: 'contact', contactShare: { id: contact.id, username: contact.username } });
     setActivePopover(null);
-  };
-
-  // ---- Contact bubble actions ----
-  const addSharedContact = async (contactShare) => {
-    if (!contactShare?.id) return;
-    try {
-      const res = await api.post('/api/friends', { query: contactShare.username || contactShare.id }, authorization);
-      setContacts((prev) => [...prev, res.data.friend]);
-      setNotice(`${contactShare.name || contactShare.username} added to contacts`);
-    } catch (e) { setError(e.response?.data?.message || 'Could not add contact.'); }
-    setContactMenuMsgId(null);
-  };
-
-  const callSharedContact = (contactShare) => {
-    const target = contacts.find((c) => c.id === contactShare?.id);
-    if (target) { startAudioCall(target); }
-    else setError('Add this contact first before calling.');
-    setContactMenuMsgId(null);
   };
 
   // ---- Message actions ----
@@ -918,51 +663,6 @@ const ChatApp = () => {
       const url = isGroup ? `/api/groups/${selected.data.id}/messages/${item.id}/star` : `/api/messages/${item.id}/star`;
       await api.post(url, { star: !alreadyStarred }, authorization);
     } catch (e) { setError(e.response?.data?.message || 'Could not star message.'); }
-  };
-
-  // ---- Poll helpers ----
-  const openPollModal = () => {
-    setPollQuestion('');
-    setPollOptions(['', '']);
-    setPollAllowMultiple(false);
-    setShowPollModal(true);
-    setActivePopover(null);
-  };
-
-  const addPollOption = () => {
-    if (pollOptions.length >= 10) return;
-    setPollOptions((prev) => [...prev, '']);
-  };
-
-  const removePollOption = (idx) => {
-    if (pollOptions.length <= 2) return;
-    setPollOptions((prev) => prev.filter((_, i) => i !== idx));
-  };
-
-  const updatePollOption = (idx, val) => {
-    setPollOptions((prev) => prev.map((o, i) => i === idx ? val : o));
-  };
-
-  const sendPoll = () => {
-    if (!selected || !pollQuestion.trim()) return;
-    const validOptions = pollOptions.map((o) => o.trim()).filter(Boolean);
-    if (validOptions.length < 2) { setError('Add at least 2 options.'); return; }
-    const event = selected.type === 'group' ? 'send-group-poll' : 'send-poll';
-    const payload = selected.type === 'group'
-      ? { groupId: selected.data.id, question: pollQuestion.trim(), options: validOptions, allowMultiple: pollAllowMultiple }
-      : { recipientId: selected.data.id, question: pollQuestion.trim(), options: validOptions, allowMultiple: pollAllowMultiple };
-    socketRef.current?.emit(event, payload);
-    setShowPollModal(false);
-  };
-
-  const votePoll = (messageId, optionId) => {
-    const isGroup = selected?.type === 'group';
-    socketRef.current?.emit('poll-vote', { messageId, optionId, isGroup });
-  };
-
-  const closePoll = (messageId) => {
-    const isGroup = selected?.type === 'group';
-    socketRef.current?.emit('poll-close', { messageId, isGroup });
   };
 
   // ---- Pin chat to sidebar ----
@@ -1064,76 +764,13 @@ const ChatApp = () => {
   const disableAppLock = async (pin) => { const hash = await hashPin(pin); if (hash !== localStorage.getItem('ww-app-lock-hash')) { setPinError('Wrong PIN'); return; } localStorage.removeItem('ww-app-lock-hash'); setAppLockEnabled(false); setIsLocked(false); setAppLockModal(null); setPinInput(''); };
   const unlockApp = async (pin) => { const hash = await hashPin(pin); if (hash !== localStorage.getItem('ww-app-lock-hash')) { setPinError('Wrong PIN'); return; } setIsLocked(false); setPinInput(''); setPinError(''); };
 
-  // ---- Status handlers ----
-  const loadStatuses = async () => {
-    if (statusLoaded) return;
-    try {
-      const res = await api.get('/api/status', authorization);
-      const mine = res.data.find((s) => s.isMe);
-      const others = res.data.filter((s) => !s.isMe);
-      setMyStatus(mine || null);
-      setStatusList(others);
-      setStatusLoaded(true);
-    } catch { /* silent */ }
-  };
-
-  const postStatus = async () => {
-    if (!newStatusText.trim()) return;
-    try {
-      const res = await api.post('/api/status', { text: newStatusText.trim(), bgColor: statusBgColor }, authorization);
-      setMyStatus((prev) => prev
-        ? { ...prev, items: [res.data, ...prev.items] }
-        : { userId: user.id, name: user.name, isMe: true, items: [res.data] }
-      );
-      setNewStatusText('');
-      setShowAddStatus(false);
-    } catch (e) { setError(e.response?.data?.message || 'Could not post status.'); }
-  };
-
-  const deleteStatus = async (statusId) => {
-    try {
-      await api.delete(`/api/status/${statusId}`, authorization);
-      setMyStatus((prev) => {
-        if (!prev) return null;
-        const items = prev.items.filter((s) => s.id !== statusId);
-        return items.length ? { ...prev, items } : null;
-      });
-    } catch (e) { setError('Could not delete status.'); }
-  };
-
-  const viewStatus = async (userEntry, index = 0) => {
-    setViewingStatus({ ...userEntry, index });
-    const item = userEntry.items[index];
-    if (item && !item.viewed) {
-      try { await api.post(`/api/status/${item.id}/view`, {}, authorization); } catch { /* silent */ }
-      setStatusList((prev) => prev.map((s) => s.userId === userEntry.userId
-        ? { ...s, items: s.items.map((it) => it.id === item.id ? { ...it, viewed: true } : it) }
-        : s
-      ));
-    }
-  };
-
-  const STATUS_BG_COLORS = ['#128C7E', '#075E54', '#25D366', '#34B7F1', '#ECE5DD', '#9C27B0', '#E91E63', '#FF5722'];
-  const [statusBgColor, setStatusBgColor] = useState('#128C7E');
-
-  // Reload status when tab becomes active
-  useEffect(() => { if (activeTab === 'status') loadStatuses(); }, [activeTab]); // eslint-disable-line
-
   // ---- Archive ----
   const toggleArchive = (type, id) => {
     const key = chatKeyFor(type, id);
     setArchivedChats((prev) => { const n = { ...prev }; if (n[key]) delete n[key]; else n[key] = true; return n; });
   };
 
-  // ---- Calls panel helpers ----
-  const clearCallHistory = async () => {
-    try {
-      await api.delete('/api/calls', authorization);
-      setCallHistory([]);
-      setShowCallsMenu(false);
-      setNotice('Call history cleared');
-    } catch (e) { setError(e.response?.data?.message || 'Could not clear call history.'); }
-  };
+  // ---- Starred messages ----
   const loadStarredMessages = async () => {
     try { const res = await api.get('/api/starred', authorization); setStarredMessages(res.data); }
     catch (e) { setError(e.response?.data?.message || 'Could not load starred messages.'); }
@@ -1166,7 +803,7 @@ const ChatApp = () => {
   const exportChat = () => {
     if (!selected) return;
     const lines = messages.map((item) => {
-      const who = item.senderId === user.id ? 'You' : (selected.type === 'group' ? (item.username || item.name || 'Unknown') : (selected.data.name || selected.data.username));
+      const who = item.senderId === user.id ? 'You' : (selected.type === 'group' ? `@${item.username}` : `@${selected.data.username}`);
       const when = new Date(item.timeStamp).toLocaleString();
       let content = item.msg;
       if (item.deletedForEveryone) content = '[deleted]';
@@ -1178,7 +815,7 @@ const ChatApp = () => {
       else if (item.type === 'call') content = '[call]';
       return `[${when}] ${who}: ${content}`;
     });
-    const label = selected.type === 'group' ? selected.data.name : (selected.data.name || selected.data.username);
+    const label = selected.type === 'group' ? selected.data.name : selected.data.username;
     const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -1205,8 +842,8 @@ const ChatApp = () => {
   const addFriend = async (event) => {
     event.preventDefault();
     try {
-      const query = friendUsername.trim().replace(/^@/, '');
-      const res = await api.post('/api/friends', { query }, authorization);
+      const username = friendUsername.trim().replace(/^@/, '');
+      const res = await api.post('/api/friends', { username }, authorization);
       setContacts((prev) => [...prev, res.data.friend]); setFriendUsername('');
     } catch (e) { setError(e.response?.data?.message || 'Could not add friend.'); }
   };
@@ -1292,45 +929,39 @@ const ChatApp = () => {
   let statusText = '';
   if (selected?.type === 'direct') {
     if (isBlocked) statusText = 'blocked';
-    else if (isDirectTyping) statusText = 'typing…';
+    else if (isDirectTyping) statusText = 'typingâ€¦';
     else if (isDirectOnline) statusText = 'online';
     else if (directLastSeen) statusText = `last seen ${new Date(directLastSeen).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`;
   } else if (isGroupTyping) {
-    statusText = `${groupTypingUsers.join(', ')} ${groupTypingUsers.length > 1 ? 'are' : 'is'} typing…`;
+    statusText = `${groupTypingUsers.join(', ')} ${groupTypingUsers.length > 1 ? 'are' : 'is'} typingâ€¦`;
   }
 
   const renderCallRow = (call) => {
     const isGroupCall = call.kind === 'group';
     const grp = isGroupCall ? groups.find((g) => g.id === call.groupId) : null;
     const displayName = isGroupCall ? (grp?.name || call.hostUsername || 'Group call') : call.contactUsername;
-    const StatusIcon = call.status === 'missed' ? PhoneMissed : call.direction === 'incoming' ? PhoneIncoming : PhoneOutgoing;
-    const isVoiceCall = call.callType === 'audio';
-    const CallbackIcon = isVoiceCall ? Phone : Video;
+    const Icon = call.status === 'missed' ? PhoneMissed : call.direction === 'incoming' ? PhoneIncoming : PhoneOutgoing;
     return (
       <div className="ww-call-row" key={call.id}>
         <span className={`ww-mini-avatar ${isGroupCall ? 'group' : ''}`}>{initialOf(displayName)}</span>
         <span className="ww-call-row-body">
-          <strong>{isGroupCall ? displayName : displayName}</strong>
+          <strong>{isGroupCall ? displayName : `@${displayName}`}</strong>
           <span className={`ww-call-row-meta ${call.status === 'missed' ? 'missed' : ''}`}>
-            <StatusIcon size={13} />
-            {' '}
-            {isVoiceCall ? 'Voice' : 'Video'}
-            {' · '}
-            {call.status === 'missed' ? 'Missed' : call.status === 'declined' ? 'Declined' : `Answered · ${formatDuration(call.duration)}`}
-            {' · '}{new Date(call.startTime).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+            <Icon size={13} />
+            {call.status === 'missed' ? 'Missed' : call.status === 'declined' ? 'Declined' : `Answered Â· ${formatDuration(call.duration)}`}
+            {' Â· '}{new Date(call.startTime).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
           </span>
         </span>
         <button type="button" className="ww-call-row-action"
-          title={isVoiceCall ? 'Call back (voice)' : 'Call back (video)'}
           onClick={() => {
             if (isGroupCall) {
               grp ? openCallPicker(grp.members.filter((m) => m.userId !== user.id).map((m) => ({ id: m.userId, username: m.username })), grp.id) : setNotice('That group is no longer available');
             } else {
               const contact = contacts.find((c) => c.id === call.contactId);
-              if (contact) isVoiceCall ? startAudioCall(contact) : startCall(contact);
+              if (contact) startCall(contact);
             }
           }}
-        ><CallbackIcon size={18} /></button>
+        ><Video size={18} /></button>
       </div>
     );
   };
@@ -1341,14 +972,15 @@ const ChatApp = () => {
       <input type="file" ref={documentInputRef} style={{ display: 'none' }} onChange={handleDocumentSelect} />
       <input type="file" accept="audio/*" ref={audioFileInputRef} style={{ display: 'none' }} onChange={handleAudioFileSelect} />
       <input type="file" accept="image/*" capture="environment" ref={cameraInputRef} style={{ display: 'none' }} onChange={handleCameraCapture} />
+
       {/* Rail */}
       <aside className="ww-rail">
-        <button type="button" data-popover-trigger className="ww-rail-avatar" title="Your profile" onClick={() => setInfoPanel(infoPanel === 'self' ? null : 'self')}>{initialOf(user.name)}</button>
+        <button type="button" className="ww-rail-avatar" title="Your profile" onClick={() => setInfoPanel(infoPanel === 'self' ? null : 'self')}>{initialOf(user.name)}</button>
         <div className="ww-rail-icons">
-          <button type="button" data-popover-trigger title="New chat" className={activePopover === 'newChat' ? 'active' : ''} onClick={() => setActivePopover(activePopover === 'newChat' ? null : 'newChat')}><MessageSquarePlus size={22} /></button>
-          <button type="button" data-popover-trigger title="New group" className={activePopover === 'newGroup' ? 'active' : ''} onClick={() => setActivePopover(activePopover === 'newGroup' ? null : 'newGroup')}><UsersRound size={22} /></button>
-          <button type="button" title="Status" className={activeTab === 'status' ? 'active' : ''} onClick={() => { setActiveTab(activeTab === 'status' ? 'chats' : 'status'); if (activeTab !== 'status') loadStatuses(); setShowCallsPanel(false); }}><CircleDot size={22} /></button>
-          <button type="button" data-popover-trigger title="Calls" className={showCallsPanel ? 'active' : ''} onClick={() => { setShowCallsPanel((p) => !p); setActivePopover(null); if (!showCallsPanel) loadCallHistory(); }}><Phone size={22} /></button>
+          <button type="button" title="New chat" className={activePopover === 'newChat' ? 'active' : ''} onClick={() => setActivePopover(activePopover === 'newChat' ? null : 'newChat')}><MessageSquarePlus size={22} /></button>
+          <button type="button" title="New group" className={activePopover === 'newGroup' ? 'active' : ''} onClick={() => setActivePopover(activePopover === 'newGroup' ? null : 'newGroup')}><UsersRound size={22} /></button>
+          <button type="button" title="New group call" className={activePopover === 'groupCallPicker' && !callPickerGroupId ? 'active' : ''} onClick={() => openCallPicker(contacts.map((c) => ({ id: c.id, username: c.username })), null)}><Video size={22} /></button>
+          <button type="button" title="Calls" className={showCallsPanel ? 'active' : ''} onClick={() => { setShowCallsPanel((p) => !p); setActivePopover(null); if (!showCallsPanel) loadCallHistory(); }}><Phone size={22} /></button>
         </div>
         <div className="ww-rail-bottom">
           <button type="button" title="Log out" onClick={() => setConfirmLogout(true)}><LogOut size={22} /></button>
@@ -1359,36 +991,7 @@ const ChatApp = () => {
       <section className="ww-list-panel">
         {showCallsPanel ? (
           <>
-            <header className="ww-list-header">
-              <div className="ww-list-header-top">
-                <h2>Calls</h2>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <div style={{ position: 'relative' }}>
-                    <button
-                      type="button"
-                      title="More options"
-                      data-popover-trigger
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', padding: '6px', borderRadius: '50%', color: '#54656f' }}
-                      onClick={() => setShowCallsMenu((p) => !p)}
-                    ><MoreVertical size={20} /></button>
-                    {showCallsMenu && (
-                      <div className="ww-calls-menu-dropdown" onMouseDown={(e) => e.stopPropagation()}>
-                        <button type="button" onClick={clearCallHistory}>
-                          <Trash2 size={15} /> Clear call log
-                        </button>
-                        <button type="button" onClick={() => { setShowCallsMenu(false); setNotice('No scheduled calls yet.'); }}>
-                          <Clock size={15} /> Scheduled calls
-                        </button>
-                        <button type="button" onClick={() => { setShowCallsMenu(false); setShowCallSettings(true); }}>
-                          <Settings2 size={15} /> Settings
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  <button type="button" onClick={() => { setShowCallsPanel(false); setShowCallsMenu(false); }}><X size={20} /></button>
-                </div>
-              </div>
-            </header>
+            <header className="ww-list-header"><div className="ww-list-header-top"><h2>Calls</h2><button type="button" onClick={() => setShowCallsPanel(false)}><X size={20} /></button></div></header>
             <div className="ww-conversation-list">{callHistory.map(renderCallRow)}{!callHistory.length && <p className="ww-empty-chats">No calls yet.</p>}</div>
           </>
         ) : (
@@ -1415,36 +1018,14 @@ const ChatApp = () => {
             </div>
             <div className="ww-mobile-tabs">
               <button type="button" className={activeTab === 'chats' ? 'active' : ''} onClick={() => setActiveTab('chats')}>CHATS</button>
-              <button type="button" className={activeTab === 'status' ? 'active' : ''} onClick={() => { setActiveTab('status'); loadStatuses(); }}>STATUS</button>
+              <button type="button" className={activeTab === 'status' ? 'active' : ''} onClick={() => setActiveTab('status')}>STATUS</button>
               <button type="button" className={activeTab === 'calls' ? 'active' : ''} onClick={() => { setActiveTab('calls'); loadCallHistory(); }}>CALLS</button>
-            </div>          </header>
+            </div>
+          </header>
 
           <div className="ww-search-bar" style={{ position: 'relative' }}>
             <Search size={16} />
-            <input
-              ref={searchInputRef}
-              value={searchQuery}
-              onChange={handleSearchChange}
-              placeholder="Search or start a new chat"
-              onBlur={(e) => {
-                // Close search results when focus leaves both the input AND the results panel
-                setTimeout(() => {
-                  if (!document.activeElement?.closest('.ww-global-search-results')) {
-                    setGlobalSearchResults(null);
-                    if (!searchQuery) setSearchQuery('');
-                  }
-                }, 150);
-              }}
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#54656f', display: 'flex', padding: '2px' }}
-                onClick={() => { setSearchQuery(''); setGlobalSearchResults(null); }}
-              >
-                <X size={15} />
-              </button>
-            )}
+            <input ref={searchInputRef} value={searchQuery} onChange={handleSearchChange} placeholder="Search or start a new chat" />
           </div>
 
           {/* Global search results dropdown */}
@@ -1453,7 +1034,7 @@ const ChatApp = () => {
               <div className="ww-search-section-label">People</div>
               {globalSearchResults.users.length ? globalSearchResults.users.map((u) => (
                 <button type="button" key={u.id} className="ww-search-result-row" onClick={() => { const c = contacts.find((c) => c.id === u.id); if (c) selectChat('direct', c); setSearchQuery(''); setGlobalSearchResults(null); }}>
-                  <span className="ww-mini-avatar">{initialOf(u.username)}</span><span>@{u.username}{u.name ? ` · ${u.name}` : ''}</span>
+                  <span className="ww-mini-avatar">{initialOf(u.username)}</span><span>@{u.username}{u.name ? ` Â· ${u.name}` : ''}</span>
                 </button>
               )) : <p className="ww-search-empty">No people found</p>}
               <div className="ww-search-section-label">Groups</div>
@@ -1465,7 +1046,7 @@ const ChatApp = () => {
               <div className="ww-search-section-label">Messages</div>
               {globalSearchResults.messages.length ? globalSearchResults.messages.map((m) => (
                 <button type="button" key={m.id} className="ww-search-result-row" onClick={() => { const cId = m.senderId === user.id ? m.recipientId : m.senderId; const c = contacts.find((c) => c.id === cId); if (c) selectChat('direct', c); setSearchQuery(''); setGlobalSearchResults(null); }}>
-                  <span className="ww-mini-avatar">💬</span>
+                  <span className="ww-mini-avatar">ðŸ’¬</span>
                   <span className="ww-search-msg-preview">{m.msg}</span>
                   <span className="ww-search-msg-time">{new Date(m.timeStamp).toLocaleDateString()}</span>
                 </button>
@@ -1477,23 +1058,11 @@ const ChatApp = () => {
             <div className="ww-popover">
               <div className="ww-popover-header"><h3>New chat</h3><button type="button" onClick={() => setActivePopover(null)}><X size={18} /></button></div>
               <form className="ww-popover-form" onSubmit={addFriend}>
-                <input
-                  value={friendUsername}
-                  onChange={(e) => setFriendUsername(e.target.value)}
-                  placeholder="Search by name or email…"
-                />
+                <input value={friendUsername} onChange={(e) => setFriendUsername(e.target.value)} placeholder="Add friend by username, e.g. @alex1234" />
                 <button type="submit">Add</button>
               </form>
               <div className="ww-popover-list">
-                {availableContacts.map((c) => (
-                  <button type="button" key={c.id} onClick={() => selectChat('direct', c)}>
-                    <span className="ww-mini-avatar">{initialOf(c.name || c.username)}</span>
-                    <span style={{ display: 'flex', flexDirection: 'column', gap: '1px', textAlign: 'left' }}>
-                      <span style={{ fontWeight: 600, fontSize: '14px' }}>{c.name || c.username}</span>
-                      {c.email && <span style={{ fontSize: '11px', color: '#8696a0' }}>{c.email}</span>}
-                    </span>
-                  </button>
-                ))}
+                {availableContacts.map((c) => (<button type="button" key={c.id} onClick={() => selectChat('direct', c)}><span className="ww-mini-avatar">{initialOf(c.username)}</span>@{c.username}</button>))}
                 {!availableContacts.length && <p className="ww-popover-empty">All your friends already have an open chat.</p>}
               </div>
             </div>
@@ -1505,7 +1074,7 @@ const ChatApp = () => {
               <form className="ww-popover-form" onSubmit={createGroup}>
                 <input value={groupName} onChange={(e) => setGroupName(e.target.value)} placeholder="Group name" />
                 <div className="ww-checkbox-list">
-                  {contacts.map((c) => (<label key={c.id}><input type="checkbox" checked={groupMembers.includes(c.id)} onChange={() => toggleGroupMember(c.id)} />{c.name || c.username}</label>))}
+                  {contacts.map((c) => (<label key={c.id}><input type="checkbox" checked={groupMembers.includes(c.id)} onChange={() => toggleGroupMember(c.id)} />@{c.username}</label>))}
                   {!contacts.length && <p className="ww-popover-empty">Add friends first to create a group.</p>}
                 </div>
                 <button type="submit">Create group</button>
@@ -1514,85 +1083,7 @@ const ChatApp = () => {
           )}
 
           {activeTab === 'status' ? (
-            <div className="ww-status-panel">
-              {/* Header with back navigation */}
-              <div className="ww-status-panel-header">
-                <button type="button" className="ww-status-back-btn" onClick={() => setActiveTab('chats')}><ArrowLeft size={18} /></button>
-                <h3>Status</h3>
-              </div>
-              {/* My status */}
-              <div className="ww-status-section-label">My status</div>
-              <div className="ww-my-status-row">
-                <button
-                  type="button"
-                  className="ww-status-avatar-btn"
-                  onClick={() => { if (myStatus?.items?.length) viewStatus(myStatus); else setShowAddStatus(true); }}
-                >
-                  <span className={`ww-avatar ${myStatus?.items?.length ? 'has-status' : ''}`}>{initialOf(user.name)}</span>
-                  {!myStatus?.items?.length && <span className="ww-status-add-plus">+</span>}
-                </button>
-                <span className="ww-status-row-body">
-                  <strong>My status</strong>
-                  <span>{myStatus?.items?.length ? `${myStatus.items.length} update${myStatus.items.length > 1 ? 's' : ''}` : 'Tap to add status update'}</span>
-                </span>
-                <button type="button" className="ww-status-add-btn" title="Add status" onClick={() => setShowAddStatus(true)}><Pencil size={16} /></button>
-              </div>
-
-              {/* Add status form */}
-              {showAddStatus && (
-                <div className="ww-add-status-form">
-                  <textarea
-                    value={newStatusText}
-                    onChange={(e) => setNewStatusText(e.target.value)}
-                    placeholder="Type a status…"
-                    maxLength={139}
-                    rows={3}
-                    autoFocus
-                  />
-                  <div className="ww-status-bg-row">
-                    {STATUS_BG_COLORS.map((c) => (
-                      <button key={c} type="button" className={`ww-status-bg-swatch ${statusBgColor === c ? 'selected' : ''}`} style={{ background: c }} onClick={() => setStatusBgColor(c)} />
-                    ))}
-                  </div>
-                  <div className="ww-add-status-actions">
-                    <button type="button" className="ww-status-cancel-btn" onClick={() => { setShowAddStatus(false); setNewStatusText(''); }}>Cancel</button>
-                    <button type="button" className="ww-status-post-btn" disabled={!newStatusText.trim()} onClick={postStatus}>Post</button>
-                  </div>
-                </div>
-              )}
-
-              {/* My status items preview */}
-              {myStatus?.items?.length > 0 && (
-                <div className="ww-my-status-items">
-                  {myStatus.items.map((item) => (
-                    <div key={item.id} className="ww-my-status-item" style={{ background: item.bgColor }}>
-                      <span>{item.text}</span>
-                      <button type="button" className="ww-status-delete-btn" onClick={() => deleteStatus(item.id)}><X size={12} /></button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Friends' statuses */}
-              {statusList.length > 0 && <>
-                <div className="ww-status-section-label" style={{ marginTop: '12px' }}>Recent updates</div>
-                {statusList.map((entry) => {
-                  const allViewed = entry.items.every((i) => i.viewed);
-                  return (
-                    <button key={entry.userId} type="button" className="ww-status-entry-row" onClick={() => viewStatus(entry)}>
-                      <span className={`ww-avatar ${allViewed ? 'status-viewed' : 'has-status'}`}>{initialOf(entry.name)}</span>
-                      <span className="ww-status-row-body">
-                        <strong>{entry.name}</strong>
-                        <span>{new Date(entry.items[0].createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                      </span>
-                    </button>
-                  );
-                })}
-              </>}
-              {statusList.length === 0 && !myStatus && (
-                <p className="ww-empty-chats" style={{ marginTop: '24px' }}>No status updates yet.<br />Add friends to see their statuses.</p>
-              )}
-            </div>
+            <div className="ww-tab-placeholder">Status updates will appear here.</div>
           ) : activeTab === 'calls' ? (
             <div className="ww-conversation-list">{callHistory.map(renderCallRow)}{!callHistory.length && <p className="ww-empty-chats">No calls yet.</p>}</div>
           ) : (
@@ -1607,11 +1098,11 @@ const ChatApp = () => {
                   {/* Favourites section */}
                   {favouriteConversations.length > 0 && !searchQuery.trim() && (
                     <div className="ww-favourites-section">
-                      <div className="ww-section-divider-label">⭐ Favourites</div>
+                      <div className="ww-section-divider-label">â­ Favourites</div>
                       {favouriteConversations.map((chat) => (
                         <button type="button" key={`fav-${chat.id}`} className={`ww-conversation favourite ${selected?.type === 'direct' && selected.data.id === chat.id ? 'active' : ''}`} onClick={() => selectChat('direct', chat)}>
-                          <span className={`ww-avatar ${onlineUserIds.has(chat.id) ? 'online' : ''}`}>{initialOf(chat.name || chat.username)}</span>
-                          <span className="ww-conversation-body"><span className="ww-conversation-top"><strong>{chat.name || chat.username}</strong></span><span className="ww-conversation-preview">{chat.lastMessage}</span></span>
+                          <span className={`ww-avatar ${onlineUserIds.has(chat.id) ? 'online' : ''}`}>{initialOf(chat.username)}</span>
+                          <span className="ww-conversation-body"><span className="ww-conversation-top"><strong>@{chat.username}</strong></span><span className="ww-conversation-preview">{chat.lastMessage}</span></span>
                         </button>
                       ))}
                       <div className="ww-section-divider-label">All Chats</div>
@@ -1623,12 +1114,12 @@ const ChatApp = () => {
                     return (
                       <button type="button" key={chat.id} className={`ww-conversation ${selected?.type === 'direct' && selected.data.id === chat.id ? 'active' : ''} ${isPinned ? 'pinned' : ''}`} onClick={() => bulkSelectMode ? toggleChatSelected(rowKey) : selectChat('direct', chat)}>
                         {bulkSelectMode && <input type="checkbox" className="ww-bulk-checkbox" checked={selectedChatKeys.has(rowKey)} onChange={() => toggleChatSelected(rowKey)} onClick={(e) => e.stopPropagation()} />}
-                        <span className={`ww-avatar ${onlineUserIds.has(chat.id) ? 'online' : ''}`}>{initialOf(chat.name || chat.username)}</span>
+                        <span className={`ww-avatar ${onlineUserIds.has(chat.id) ? 'online' : ''}`}>{initialOf(chat.username)}</span>
                         <span className="ww-conversation-body">
-                          <span className="ww-conversation-top"><strong>{chat.name || chat.username}</strong>{chat.timeStamp && <span className="ww-conversation-time">{new Date(chat.timeStamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}</span>
+                          <span className="ww-conversation-top"><strong>@{chat.username}</strong>{chat.timeStamp && <span className="ww-conversation-time">{new Date(chat.timeStamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}</span>
                           <span className="ww-conversation-preview">{chat.lastMessage}</span>
                         </span>
-                        {isPinned && <span className="ww-pin-badge" title="Pinned">📌</span>}
+                        {isPinned && <span className="ww-pin-badge" title="Pinned">ðŸ“Œ</span>}
                       </button>
                     );
                   })}
@@ -1639,7 +1130,7 @@ const ChatApp = () => {
                   {/* Group favourites section */}
                   {favouriteGroups.length > 0 && !searchQuery.trim() && (
                     <div className="ww-favourites-section">
-                      <div className="ww-section-divider-label">⭐ Favourites</div>
+                      <div className="ww-section-divider-label">â­ Favourites</div>
                       {favouriteGroups.map((group) => (
                         <button type="button" key={`fav-${group.id}`} className={`ww-conversation favourite ${selected?.type === 'group' && selected.data.id === group.id ? 'active' : ''}`} onClick={() => selectChat('group', group)}>
                           <span className="ww-avatar group">{initialOf(group.name)}</span>
@@ -1660,7 +1151,7 @@ const ChatApp = () => {
                           <span className="ww-conversation-top"><strong>{group.name}</strong>{group.timeStamp && <span className="ww-conversation-time">{new Date(group.timeStamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}</span>
                           <span className="ww-conversation-preview">{group.lastMessage || `${group.members.length} members`}</span>
                         </span>
-                        {isPinned && <span className="ww-pin-badge" title="Pinned">📌</span>}
+                        {isPinned && <span className="ww-pin-badge" title="Pinned">ðŸ“Œ</span>}
                       </button>
                     );
                   })}
@@ -1684,23 +1175,20 @@ const ChatApp = () => {
               <div className="ww-conversation-identity-wrap">
                 <button type="button" className="ww-back-btn" onClick={() => setSelected(null)}><ArrowLeft size={22} /></button>
                 <button type="button" className="ww-conversation-identity" onClick={() => setInfoPanel('contact')}>
-                  <span className={`ww-avatar ${isDirectOnline ? 'online' : ''}`}>{initialOf(selected.type === 'group' ? selected.data.name : (selected.data.name || selected.data.username))}</span>
+                  <span className={`ww-avatar ${isDirectOnline ? 'online' : ''}`}>{initialOf(selected.type === 'group' ? selected.data.name : selected.data.username)}</span>
                   <span className="ww-identity-text">
-                    <h1>{selected.type === 'group' ? selected.data.name : (selected.data.name || selected.data.username)}</h1>
+                    <h1>{selected.type === 'group' ? selected.data.name : `@${selected.data.username}`}</h1>
                     {statusText && <span className={`ww-status-line ${isDirectTyping || isGroupTyping ? 'typing' : ''} ${isBlocked ? 'blocked' : ''}`}>{statusText}</span>}
                   </span>
                 </button>
               </div>
               <div className="ww-header-icons">
-                {selected.type === 'direct' && <>
-                  <button type="button" title="Voice call" disabled={isBlocked} onClick={() => startAudioCall()}><Phone size={20} /></button>
-                  <button type="button" title="Video call" disabled={isBlocked} onClick={() => startCall()}><Video size={20} /></button>
-                </>}
+                {selected.type === 'direct' && <button type="button" title="Video call" disabled={isBlocked} onClick={() => startCall()}><Video size={20} /></button>}
                 {selected.type === 'group' && (
                   <button type="button" title="Group video call" onClick={() => openCallPicker(selected.data.members.filter((m) => m.userId !== user.id).map((m) => ({ id: m.userId, username: m.username })), selected.data.id)}><Video size={20} /></button>
                 )}
                 <button type="button" title="Search in chat" className={chatSearchOpen ? 'active' : ''} onClick={() => { setChatSearchOpen((p) => !p); setChatSearchQuery(''); }}><Search size={20} /></button>
-                <button type="button" data-popover-trigger title="More options" onClick={() => setActivePopover(activePopover === 'chatMenu' ? null : 'chatMenu')}><MoreVertical size={20} /></button>
+                <button type="button" title="More options" onClick={() => setActivePopover(activePopover === 'chatMenu' ? null : 'chatMenu')}><MoreVertical size={20} /></button>
               </div>
 
               {activePopover === 'chatMenu' && (
@@ -1711,7 +1199,7 @@ const ChatApp = () => {
                   <button type="button" onClick={() => { togglePinChat(selected.type, selected.data.id); setActivePopover(null); }}>
                     <Flag size={16} /> {pinnedChatKeys.includes(currentChatKey) ? 'Unpin chat' : 'Pin chat'}
                   </button>
-                  <button type="button" onClick={() => { updateChatSetting(currentChatKey, { disappearing: !isDisappearing }); setActivePopover(null); }}><Clock size={16} /> Disappearing · {isDisappearing ? 'On' : 'Off'}</button>
+                  <button type="button" onClick={() => { updateChatSetting(currentChatKey, { disappearing: !isDisappearing }); setActivePopover(null); }}><Clock size={16} /> Disappearing Â· {isDisappearing ? 'On' : 'Off'}</button>
                   <button type="button" onClick={() => setActivePopover('chatTheme')}><Palette size={16} /> Chat theme</button>
                   <button type="button" onClick={shareChat}><Share2 size={16} /> Share</button>
                   <div className="ww-menu-divider" />
@@ -1747,7 +1235,7 @@ const ChatApp = () => {
             {/* Pinned message strip */}
             {latestPinnedMessage && (
               <div className="ww-pinned-message-strip">
-                <span className="ww-pinned-label">📌 Pinned:</span>
+                <span className="ww-pinned-label">ðŸ“Œ Pinned:</span>
                 <span className="ww-pinned-preview">{previewFor(latestPinnedMessage)}</span>
                 <button type="button" onClick={() => pinMessage(latestPinnedMessage, false)} title="Unpin"><X size={14} /></button>
               </div>
@@ -1761,7 +1249,7 @@ const ChatApp = () => {
               </div>
             )}
 
-            {isBlocked && <div className="ww-blocked-banner"><Ban size={14} /> You blocked {selected.data.name || selected.data.username}. Unblock them to send or receive messages.</div>}
+            {isBlocked && <div className="ww-blocked-banner"><Ban size={14} /> You blocked @{selected.data.username}. Unblock them to send or receive messages.</div>}
             {isDisappearing && !isBlocked && <div className="ww-disappearing-banner"><Clock size={13} /> Disappearing messages are on for this chat.</div>}
 
             <div className="ww-chat" ref={chatScrollRef} style={currentSettings.theme ? { '--chat-accent': currentSettings.theme } : undefined}>
@@ -1772,20 +1260,14 @@ const ChatApp = () => {
                     const mine = item.senderId === user.id;
                     return (
                       <div key={item.id} className={`ww-message ${mine ? 'me' : ''} ${item.type === 'call' ? 'call-log' : ''}`} onMouseLeave={() => setMessageMenuId((p) => p === item.id ? null : p)}>
-                        {selected.type === 'group' && !mine && item.type !== 'call' && <div className="ww-sender">{item.name || item.username}</div>}
+                        {selected.type === 'group' && !mine && item.type !== 'call' && <div className="ww-sender">@{item.username}</div>}
 
                         {item.deletedForEveryone ? (
-                          <div className="ww-bubble-text deleted">🚫 This message was deleted</div>
+                          <div className="ww-bubble-text deleted">ðŸš« This message was deleted</div>
                         ) : item.type === 'call' ? (
                           <div className="ww-call-log-body">
-                            {item.callInfo?.status === 'missed'
-                              ? <PhoneMissed size={16} />
-                              : item.callInfo?.callType === 'audio' ? <Phone size={16} /> : <Video size={16} />}
-                            <span>{
-                              item.callInfo?.callType === 'audio'
-                                ? (item.callInfo?.status === 'missed' ? 'Missed voice call' : item.callInfo?.status === 'declined' ? 'Declined voice call' : `Voice call · ${formatDuration(item.callInfo?.duration)}`)
-                                : (item.callInfo?.status === 'missed' ? 'Missed video call' : item.callInfo?.status === 'declined' ? 'Declined video call' : `Video call · ${formatDuration(item.callInfo?.duration)}`)
-                            }</span>
+                            {item.callInfo?.status === 'missed' ? <PhoneMissed size={16} /> : <Video size={16} />}
+                            <span>{item.callInfo?.status === 'missed' ? 'Missed video call' : item.callInfo?.status === 'declined' ? 'Declined video call' : `Video call Â· ${formatDuration(item.callInfo?.duration)}`}</span>
                           </div>
                         ) : item.type === 'audio' ? (
                           <div className="ww-audio-bubble"><audio controls src={item.audioData} /></div>
@@ -1796,64 +1278,7 @@ const ChatApp = () => {
                         ) : item.type === 'location' ? (
                           <a className="ww-location-bubble" href={`https://www.google.com/maps?q=${item.location?.lat},${item.location?.lng}`} target="_blank" rel="noreferrer"><MapPin size={18} /><span>Shared location</span></a>
                         ) : item.type === 'contact' ? (
-                          <div className="ww-contact-bubble">
-                            <span className="ww-mini-avatar">{initialOf(item.contactShare?.name || item.contactShare?.username)}</span>
-                            <span className="ww-contact-bubble-name">{item.contactShare?.name || item.contactShare?.username}</span>
-                            <div className="ww-contact-bubble-menu-wrap">
-                              <button
-                                type="button"
-                                className="ww-contact-bubble-dots"
-                                onClick={(e) => { e.stopPropagation(); setContactMenuMsgId(contactMenuMsgId === item.id ? null : item.id); }}
-                              ><MoreVertical size={15} /></button>
-                              {contactMenuMsgId === item.id && (
-                                <div className="ww-contact-bubble-dropdown">
-                                  <button type="button" onClick={() => addSharedContact(item.contactShare)}>
-                                    <UserPlus size={14} /> Add to Contacts
-                                  </button>
-                                  <button type="button" onClick={() => callSharedContact(item.contactShare)}>
-                                    <Phone size={14} /> Call
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        ) : item.type === 'poll' ? (
-                          <div className="ww-poll-bubble">
-                            <div className="ww-poll-header">
-                              <span className="ww-poll-icon">📊</span>
-                              <span className="ww-poll-question">{item.poll?.question}</span>
-                            </div>
-                            {item.poll?.closed && <div className="ww-poll-closed-badge">Poll closed</div>}
-                            <div className="ww-poll-options">
-                              {(item.poll?.options || []).map((opt) => {
-                                const totalVotes = (item.poll?.options || []).reduce((sum, o) => sum + (o.votes?.length || 0), 0);
-                                const myVote = (opt.votes || []).includes(user.id);
-                                const pct = totalVotes > 0 ? Math.round(((opt.votes?.length || 0) / totalVotes) * 100) : 0;
-                                return (
-                                  <button
-                                    key={opt.id}
-                                    type="button"
-                                    className={`ww-poll-option ${myVote ? 'voted' : ''} ${item.poll?.closed ? 'closed' : ''}`}
-                                    onClick={() => !item.poll?.closed && votePoll(item.id, opt.id)}
-                                    disabled={item.poll?.closed}
-                                  >
-                                    <div className="ww-poll-option-bar" style={{ width: `${pct}%` }} />
-                                    <span className="ww-poll-option-text">
-                                      {myVote && <span className="ww-poll-check">✓</span>}
-                                      {opt.text}
-                                    </span>
-                                    <span className="ww-poll-option-pct">{pct}%</span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                            <div className="ww-poll-footer">
-                              <span>{(item.poll?.options || []).reduce((s, o) => s + (o.votes?.length || 0), 0)} votes · {item.poll?.allowMultiple ? 'Multiple choice' : 'Single choice'}</span>
-                              {mine && !item.poll?.closed && (
-                                <button type="button" className="ww-poll-close-btn" onClick={() => closePoll(item.id)}>Close poll</button>
-                              )}
-                            </div>
-                          </div>
+                          <div className="ww-contact-bubble"><span className="ww-mini-avatar">{initialOf(item.contactShare?.username)}</span><span>@{item.contactShare?.username}</span></div>
                         ) : editingMessageId === item.id ? (
                           <form className="ww-edit-form" onSubmit={(e) => { e.preventDefault(); submitEditMessage(item); }}>
                             <input ref={editInputRef} value={editingMessageText} onChange={(e) => setEditingMessageText(e.target.value)} className="ww-edit-input" />
@@ -1917,7 +1342,7 @@ const ChatApp = () => {
                   })}
                 </React.Fragment>
               ))}
-              {!visibleMessages.length && <p className="ww-empty-chats">{chatSearchQuery ? 'No messages match your search.' : 'Say hello 👋 — no messages here yet.'}</p>}
+              {!visibleMessages.length && <p className="ww-empty-chats">{chatSearchQuery ? 'No messages match your search.' : 'Say hello ðŸ‘‹ â€” no messages here yet.'}</p>}
               {(isDirectTyping || isGroupTyping) && <div className="ww-typing-bubble"><span className="ww-dot" /><span className="ww-dot" /><span className="ww-dot" /></div>}
             </div>
 
@@ -1930,14 +1355,14 @@ const ChatApp = () => {
             )}
 
             <form className="ww-inputbar" onSubmit={sendMessage}>
-              <button type="button" data-popover-trigger className="ww-emoji" disabled={isBlocked} onClick={() => setShowEmojiPicker((p) => !p)}><Smile size={20} /></button>
-              <button type="button" data-popover-trigger className="ww-attach" disabled={isBlocked} onClick={() => setActivePopover(activePopover === 'attach' ? null : 'attach')}><Paperclip size={20} /></button>
+              <button type="button" className="ww-emoji" disabled={isBlocked} onClick={() => setShowEmojiPicker((p) => !p)}><Smile size={20} /></button>
+              <button type="button" className="ww-attach" disabled={isBlocked} onClick={() => setActivePopover(activePopover === 'attach' ? null : 'attach')}><Paperclip size={20} /></button>
               {isRecording ? (
-                <div className="ww-recording-indicator"><span className="ww-rec-dot" /> Recording… {formatDuration(recordSeconds)}</div>
+                <div className="ww-recording-indicator"><span className="ww-rec-dot" /> Recordingâ€¦ {formatDuration(recordSeconds)}</div>
               ) : (
                 <input value={message} onChange={handleMessageChange} placeholder={isBlocked ? 'You blocked this contact' : 'Type a message here ..'} disabled={isBlocked} />
               )}
-              <button type="button" className="ww-camera-btn" disabled={isBlocked} onClick={openCamera}><Camera size={20} /></button>
+              <button type="button" className="ww-camera-btn" disabled={isBlocked} onClick={() => cameraInputRef.current?.click()}><Camera size={20} /></button>
               {message.trim() ? (
                 <button type="submit" className="ww-send" disabled={isBlocked}><Send size={18} /></button>
               ) : (
@@ -1950,12 +1375,11 @@ const ChatApp = () => {
                 <div className="ww-attach-sheet" onClick={(e) => e.stopPropagation()}>
                   <div className="ww-attach-grid">
                     <button type="button" onClick={() => documentInputRef.current?.click()}><span className="ww-attach-icon doc"><FileText size={22} /></span>Document</button>
-                    <button type="button" onClick={() => { setActivePopover(null); openCamera(); }}><span className="ww-attach-icon cam"><Camera size={22} /></span>Camera</button>
+                    <button type="button" onClick={() => cameraInputRef.current?.click()}><span className="ww-attach-icon cam"><Camera size={22} /></span>Camera</button>
                     <button type="button" onClick={() => galleryInputRef.current?.click()}><span className="ww-attach-icon gal"><ImageIcon size={22} /></span>Gallery</button>
                     <button type="button" onClick={() => audioFileInputRef.current?.click()}><span className="ww-attach-icon aud"><Headphones size={22} /></span>Audio</button>
                     <button type="button" onClick={shareLocation}><span className="ww-attach-icon loc"><MapPin size={22} /></span>Location</button>
                     <button type="button" onClick={() => setActivePopover('shareContact')}><span className="ww-attach-icon con"><UserIcon size={22} /></span>Contact</button>
-                    <button type="button" onClick={openPollModal}><span className="ww-attach-icon poll">📊</span>Poll</button>
                   </div>
                 </div>
               </div>
@@ -1987,7 +1411,7 @@ const ChatApp = () => {
             <button type="button" onClick={() => setInfoPanel(null)}><X size={20} /></button>
             <h2>{infoPanel === 'self' ? 'Profile' : selected.type === 'group' ? 'Group Info' : 'Contact Info'}</h2>
             {infoPanel !== 'self' && selected.type === 'group' && (
-              <button type="button" data-popover-trigger className="ww-info-menu-btn" onClick={() => setActivePopover(activePopover === 'groupInfoMenu' ? null : 'groupInfoMenu')}><MoreVertical size={18} /></button>
+              <button type="button" className="ww-info-menu-btn" onClick={() => setActivePopover(activePopover === 'groupInfoMenu' ? null : 'groupInfoMenu')}><MoreVertical size={18} /></button>
             )}
           </header>
 
@@ -2013,19 +1437,14 @@ const ChatApp = () => {
                     <button type="button" title="Cancel" onClick={() => setEditingGroupField(null)}><X size={14} /></button>
                   </form>
                 ) : (
-                  <>
-                    <h3>{selected.type === 'group' ? selected.data.name : (selected.data.name || selected.data.username)}</h3>
-                    {selected.type === 'direct' && selected.data.email && (
-                      <p style={{ fontSize: '12px', color: '#8696a0', margin: '-12px 0 8px' }}>{selected.data.email}</p>
-                    )}
-                  </>
+                  <h3>{selected.type === 'group' ? selected.data.name : `@${selected.data.username}`}</h3>
                 )}
 
                 <p className="ww-info-sub">{selected.type === 'group' ? `${selected.data.members.length} members` : 'Friend'}</p>
 
                 {selected.type === 'direct' && (
                   <button type="button" className={`ww-block-btn ${isBlocked ? 'blocked' : ''}`} onClick={() => toggleBlock(selectedContactMeta || selected.data)}>
-                    {isBlocked ? <ShieldCheck size={16} /> : <Ban size={16} />} {isBlocked ? `Unblock ${selected.data.name || selected.data.username}` : `Block ${selected.data.name || selected.data.username}`}
+                    {isBlocked ? <ShieldCheck size={16} /> : <Ban size={16} />} {isBlocked ? `Unblock @${selected.data.username}` : `Block @${selected.data.username}`}
                   </button>
                 )}
 
@@ -2048,14 +1467,10 @@ const ChatApp = () => {
                 <div className="ww-info-section">
                   <h4>Media, Links and Documents</h4>
                   <div className="ww-media-grid">
-                    {messages
-                      .filter((m) => m.type === 'image' && !m.deletedForEveryone && m.fileData)
-                      .slice(-3).reverse().map((m) => (
+                    {messages.filter((m) => m.type === 'image').slice(-3).reverse().map((m) => (
                       <a key={m.id} href={m.fileData} target="_blank" rel="noreferrer" className="ww-media-thumb"><img src={m.fileData} alt={m.fileName || 'Shared image'} /></a>
                     ))}
-                    {!messages.some((m) => m.type === 'image' && !m.deletedForEveryone && m.fileData) && (
-                      <><div className="ww-media-placeholder" /><div className="ww-media-placeholder" /><div className="ww-media-placeholder" /></>
-                    )}
+                    {!messages.some((m) => m.type === 'image') && (<><div className="ww-media-placeholder" /><div className="ww-media-placeholder" /><div className="ww-media-placeholder" /></>)}
                   </div>
                 </div>
 
@@ -2075,9 +1490,9 @@ const ChatApp = () => {
                     <ul className="ww-member-list">
                       {selected.data.members.map((member) => (
                         <li key={member.userId}>
-                          <span className="ww-mini-avatar">{initialOf(member.name || member.username)}</span>
+                          <span className="ww-mini-avatar">{initialOf(member.username)}</span>
                           <span className="ww-member-name-col">
-                            <span>{member.name || member.username}{member.userId === user.id ? ' (You)' : ''}</span>
+                            <span>@{member.username}{member.userId === user.id ? ' (You)' : ''}</span>
                             {member.userId === selected.data.createdBy && <span className="ww-admin-badge">Group admin</span>}
                           </span>
                         </li>
@@ -2172,7 +1587,7 @@ const ChatApp = () => {
       {/* Active group call */}
       {groupCall && (
         <div className="ww-call-modal video group">
-          <p>Group call{groupCall.groupId ? ` · ${groups.find((g) => g.id === groupCall.groupId)?.name || ''}` : ''} ({groupCallParticipants.length + 1}/{MAX_GROUP_CALL_PARTICIPANTS})</p>
+          <p>Group call{groupCall.groupId ? ` Â· ${groups.find((g) => g.id === groupCall.groupId)?.name || ''}` : ''} ({groupCallParticipants.length + 1}/{MAX_GROUP_CALL_PARTICIPANTS})</p>
           <div className="ww-group-video-grid">
             <div className="ww-group-video-tile"><video ref={localGroupVideoRef} autoPlay muted playsInline /><span className="ww-group-video-label">You</span></div>
             {groupCallParticipants.map((p) => (
@@ -2193,121 +1608,33 @@ const ChatApp = () => {
 
       {/* Incoming 1:1 call */}
       {incomingCall && (
-        <div className="ww-incoming-call-modal">
-          <div className="ww-incoming-call-type">
-            {incomingCall.callType === 'audio'
-              ? <><Phone size={14} /> Voice call</>
-              : <><Video size={14} /> Video call</>}
-          </div>
-          <span className="ww-call-avatar">{initialOf(incomingCall.from?.name || incomingCall.from?.username)}</span>
-          <p className="ww-call-caller-name">{incomingCall.from?.name || incomingCall.from?.username}</p>
-          <p className="ww-call-status-text">Incoming {incomingCall.callType === 'audio' ? 'voice' : 'video'} call…</p>
-          <div className="ww-incoming-call-actions">
-            <button type="button" className="ww-call-btn decline" onClick={() => { stopRingtone(); declineCall(); }}>
-              <PhoneOff size={22} />
-              <span>Decline</span>
-            </button>
-            <button type="button" className="ww-call-btn accept" onClick={() => { stopRingtone(); acceptCall(); }}>
-              <Phone size={22} />
-              <span>Accept</span>
-            </button>
+        <div className="ww-call-modal">
+          <span className="ww-info-avatar small">{initialOf(incomingCall.from.username)}</span>
+          <p>@{incomingCall.from.username} is callingâ€¦</p>
+          <div className="ww-call-actions">
+            <button type="button" className="accept" onClick={acceptCall}><Video size={16} /> Accept</button>
+            <button type="button" className="decline" onClick={declineCall}><PhoneOff size={16} /> Decline</button>
           </div>
         </div>
       )}
 
       {/* Active 1:1 call */}
-      {activeCall && (() => {
-        const isVoice = activeCall.audioOnly && !switchedToVideo;
-        const callerName = activeCall.name || activeCall.username;
-        const connState = directCall.connectionState;
-        const statusLabel = connState === 'connected' || connState === 'completed'
-          ? formatDuration(callDuration)
-          : connState === 'checking' ? 'Connecting…'
-          : 'Ringing…';
-
-        return (
-          <div className={`ww-active-call-modal ${isVoice ? 'voice' : 'video'} ${callMinimized ? 'minimized' : ''}`}>
-            {callMinimized ? (
-              /* ---- Floating PiP (minimized) ---- */
-              <div className="ww-call-pip" onClick={() => setCallMinimized(false)}>
-                <span className="ww-call-pip-avatar">{initialOf(callerName)}</span>
-                <span className="ww-call-pip-info">
-                  <strong>{callerName}</strong>
-                  <span>{statusLabel}</span>
-                </span>
-                <button type="button" className="ww-call-pip-end" onClick={(e) => { e.stopPropagation(); closeCall(true); }}>
-                  <PhoneOff size={16} />
-                </button>
-              </div>
-            ) : isVoice ? (
-              /* ---- Voice call screen ---- */
-              <>
-                <div className="ww-voice-call-topbar">
-                  <button type="button" className="ww-call-topbar-btn" title="Minimize" onClick={() => setCallMinimized(true)}>
-                    <ChevronDown size={22} />
-                  </button>
-                  <button type="button" className="ww-call-topbar-btn" title="Add participant" onClick={() => { const pid = directCall.addPersonToCall(); if (pid) openCallPicker(contacts.filter((c) => c.id !== pid).map((c) => ({ id: c.id, username: c.username })), null); }}>
-                    <UserPlus size={20} />
-                  </button>
-                </div>
-
-                <div className="ww-voice-call-body">
-                  <div className="ww-voice-avatar-ring">
-                    <span className="ww-voice-avatar">{initialOf(callerName)}</span>
-                  </div>
-                  <p className="ww-voice-caller-name">{callerName}</p>
-                  <p className={`ww-voice-status ${connState === 'connected' || connState === 'completed' ? 'connected' : 'ringing'}`}>
-                    {statusLabel}
-                  </p>
-                </div>
-
-                <div className="ww-voice-call-controls">
-                  <button type="button" className={`ww-vc-btn ${isMicMuted ? 'off' : ''}`} onClick={toggleMic}>
-                    {isMicMuted ? <MicOff size={24} /> : <Mic size={24} />}
-                    <span>{isMicMuted ? 'Unmute' : 'Mute'}</span>
-                  </button>
-                  <button type="button" className={`ww-vc-btn ${speakerOn ? 'on' : ''}`} onClick={() => setSpeakerOn((p) => !p)}>
-                    <Headphones size={24} />
-                    <span>Speaker</span>
-                  </button>
-                  <button type="button" className="ww-vc-btn" title="Switch to video" onClick={escalateToVideo}>
-                    <Video size={24} />
-                    <span>Video</span>
-                  </button>
-                  <button type="button" className="ww-vc-btn end-call" onClick={() => closeCall(true)}>
-                    <PhoneOff size={24} />
-                    <span>End</span>
-                  </button>
-                </div>
-              </>
-            ) : (
-              /* ---- Video call screen ---- */
-              <>
-                <div className="ww-voice-call-topbar">
-                  <button type="button" className="ww-call-topbar-btn" title="Minimize" onClick={() => setCallMinimized(true)}>
-                    <ChevronDown size={22} />
-                  </button>
-                  <span className="ww-video-call-name">{callerName} · {statusLabel}</span>
-                  <button type="button" className="ww-call-topbar-btn" title="Add participant" onClick={() => { const pid = directCall.addPersonToCall(); if (pid) openCallPicker(contacts.filter((c) => c.id !== pid).map((c) => ({ id: c.id, username: c.username })), null); }}>
-                    <UserPlus size={20} />
-                  </button>
-                </div>
-                <div className="ww-video-grid">
-                  <video ref={localVideoRef} autoPlay muted playsInline />
-                  <video ref={remoteVideoRef} autoPlay playsInline />
-                </div>
-                <div className="ww-call-controls">
-                  <button type="button" className={`ww-call-control-btn ${isMicMuted ? 'off' : ''}`} onClick={toggleMic}>{isMicMuted ? <MicOff size={18} /> : <Mic size={18} />}</button>
-                  <button type="button" className={`ww-call-control-btn ${isCameraOff ? 'off' : ''}`} onClick={toggleCamera}>{isCameraOff ? <VideoOff size={18} /> : <Video size={18} />}</button>
-                  <button type="button" className={`ww-call-control-btn ${directCall.isScreenSharing ? 'active' : ''}`} title={directCall.isScreenSharing ? 'Stop sharing' : 'Share screen'} onClick={() => directCall.toggleScreenShare()}><Share2 size={18} /></button>
-                  <button type="button" className="ww-call-control-btn" title="Add person to call" onClick={() => { const pid = directCall.addPersonToCall(); if (pid) openCallPicker(contacts.filter((c) => c.id !== pid).map((c) => ({ id: c.id, username: c.username })), null); }}><UserPlus size={18} /></button>
-                  <button type="button" className="decline" onClick={() => closeCall(true)}><PhoneOff size={16} /> End call</button>
-                </div>
-              </>
-            )}
+      {activeCall && (
+        <div className="ww-call-modal video">
+          <p>Video call with @{activeCall.username}</p>
+          <div className="ww-video-grid">
+            <video ref={localVideoRef} autoPlay muted playsInline />
+            <video ref={remoteVideoRef} autoPlay playsInline />
           </div>
-        );
-      })()}
+          <div className="ww-call-controls">
+            <button type="button" className={`ww-call-control-btn ${isMicMuted ? 'off' : ''}`} onClick={toggleMic}>{isMicMuted ? <MicOff size={18} /> : <Mic size={18} />}</button>
+            <button type="button" className={`ww-call-control-btn ${isCameraOff ? 'off' : ''}`} onClick={toggleCamera}>{isCameraOff ? <VideoOff size={18} /> : <Video size={18} />}</button>
+            <button type="button" className={`ww-call-control-btn ${directCall.isScreenSharing ? 'active' : ''}`} title={directCall.isScreenSharing ? 'Stop sharing' : 'Share screen'} onClick={() => directCall.toggleScreenShare()}><Share2 size={18} /></button>
+            <button type="button" className="ww-call-control-btn" title="Add person to call" onClick={() => { const partnerId = directCall.addPersonToCall(); if (partnerId) openCallPicker(contacts.filter((c) => c.id !== partnerId).map((c) => ({ id: c.id, username: c.username })), null); }}><UserPlus size={18} /></button>
+            <button type="button" className="decline" onClick={() => closeCall(true)}><PhoneOff size={16} /> End call</button>
+          </div>
+        </div>
+      )}
 
       {/* Logout confirm */}
       {confirmLogout && (
@@ -2397,178 +1724,9 @@ const ChatApp = () => {
           <button type="button" className="accept" onClick={() => unlockApp(pinInput)}>Unlock</button>
         </div>
       )}
-
-      {/* Status viewer modal */}
-      {viewingStatus && (() => {
-        const item = viewingStatus.items[viewingStatus.index];
-        if (!item) { setViewingStatus(null); return null; }
-        return (
-          <div className="ww-status-viewer-overlay" onClick={() => setViewingStatus(null)}>
-            <div className="ww-status-viewer" style={{ background: item.bgColor }} onClick={(e) => e.stopPropagation()}>
-              <div className="ww-status-viewer-header">
-                <span className="ww-avatar">{initialOf(viewingStatus.name)}</span>
-                <span className="ww-status-viewer-name">
-                  <strong>{viewingStatus.name}</strong>
-                  <span>{new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                </span>
-                <button type="button" className="ww-status-viewer-close" onClick={() => setViewingStatus(null)}><X size={20} /></button>
-              </div>
-              {/* Progress bar dots */}
-              <div className="ww-status-progress">
-                {viewingStatus.items.map((_, i) => (
-                  <div key={i} className={`ww-status-progress-seg ${i === viewingStatus.index ? 'active' : i < viewingStatus.index ? 'done' : ''}`} />
-                ))}
-              </div>
-              <div className="ww-status-viewer-text">{item.text}</div>
-              {/* Prev / Next */}
-              <div className="ww-status-viewer-nav">
-                <button type="button" disabled={viewingStatus.index === 0}
-                  onClick={() => viewStatus(viewingStatus, viewingStatus.index - 1)}>‹</button>
-                <button type="button" disabled={viewingStatus.index === viewingStatus.items.length - 1}
-                  onClick={() => viewStatus(viewingStatus, viewingStatus.index + 1)}>›</button>
-              </div>
-              {viewingStatus.isMe && (
-                <div className="ww-status-viewer-footer">
-                  <Eye size={14} /> {item.viewCount} {item.viewCount === 1 ? 'view' : 'views'}
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* Call settings modal */}
-      {showCallSettings && (
-        <div className="ww-attach-sheet-overlay" onClick={() => setShowCallSettings(false)}>
-          <div className="ww-poll-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="ww-popover-header">
-              <h3><Phone size={16} /> Call Settings</h3>
-              <button type="button" onClick={() => setShowCallSettings(false)}><X size={18} /></button>
-            </div>
-            <div className="ww-poll-modal-body">
-              <div className="ww-call-settings-row">
-                <div>
-                  <strong>Ringtone</strong>
-                  <p>Two-tone ringtone (default)</p>
-                </div>
-                <span className="ww-call-settings-badge">Default</span>
-              </div>
-              <div className="ww-call-settings-row">
-                <div>
-                  <strong>Call notifications</strong>
-                  <p>Show incoming call alerts</p>
-                </div>
-                <input type="checkbox" defaultChecked style={{ width: 16, height: 16, accentColor: '#25d366', cursor: 'pointer' }} />
-              </div>
-              <div className="ww-call-settings-row">
-                <div>
-                  <strong>Noise suppression</strong>
-                  <p>Reduce background noise</p>
-                </div>
-                <input type="checkbox" defaultChecked style={{ width: 16, height: 16, accentColor: '#25d366', cursor: 'pointer' }} />
-              </div>
-              <div className="ww-call-settings-row">
-                <div>
-                  <strong>Default call type</strong>
-                  <p>When calling from contact card</p>
-                </div>
-                <select className="ww-call-settings-select">
-                  <option value="audio">Voice</option>
-                  <option value="video">Video</option>
-                </select>
-              </div>
-            </div>
-            <div className="ww-poll-modal-footer">
-              <button type="button" className="ww-poll-send-btn" onClick={() => setShowCallSettings(false)}>Done</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Camera capture modal */}      {showCameraModal && (
-        <div className="ww-camera-modal-overlay" onClick={closeCamera}>
-          <div className="ww-camera-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="ww-camera-modal-header">
-              <span>Take a photo</span>
-              <button type="button" onClick={closeCamera}><X size={18} /></button>
-            </div>
-            <video ref={cameraVideoRef} autoPlay playsInline className="ww-camera-preview" />
-            <div className="ww-camera-modal-actions">
-              <button type="button" className="ww-camera-cancel-btn" onClick={closeCamera}>Cancel</button>
-              <button type="button" className="ww-camera-capture-btn" onClick={capturePhoto}>
-                <Camera size={20} /> Capture &amp; Send
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Poll creation modal */}      {showPollModal && (
-        <div className="ww-attach-sheet-overlay" onClick={() => setShowPollModal(false)}>
-          <div className="ww-poll-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="ww-popover-header">
-              <h3>📊 Create Poll</h3>
-              <button type="button" onClick={() => setShowPollModal(false)}><X size={18} /></button>
-            </div>
-            <div className="ww-poll-modal-body">
-              <div className="ww-poll-field">
-                <label>Question</label>
-                <input
-                  type="text"
-                  placeholder="Ask a question…"
-                  value={pollQuestion}
-                  maxLength={200}
-                  onChange={(e) => setPollQuestion(e.target.value)}
-                  autoFocus
-                />
-              </div>
-              <div className="ww-poll-field">
-                <label>Options</label>
-                {pollOptions.map((opt, idx) => (
-                  <div key={idx} className="ww-poll-option-row">
-                    <input
-                      type="text"
-                      placeholder={`Option ${idx + 1}`}
-                      value={opt}
-                      maxLength={100}
-                      onChange={(e) => updatePollOption(idx, e.target.value)}
-                    />
-                    {pollOptions.length > 2 && (
-                      <button type="button" className="ww-poll-remove-btn" onClick={() => removePollOption(idx)}><X size={14} /></button>
-                    )}
-                  </div>
-                ))}
-                {pollOptions.length < 10 && (
-                  <button type="button" className="ww-poll-add-option-btn" onClick={addPollOption}>
-                    + Add option
-                  </button>
-                )}
-              </div>
-              <label className="ww-poll-multiple-row">
-                <input
-                  type="checkbox"
-                  checked={pollAllowMultiple}
-                  onChange={(e) => setPollAllowMultiple(e.target.checked)}
-                />
-                Allow multiple answers
-              </label>
-            </div>
-            <div className="ww-poll-modal-footer">
-              <button type="button" className="ww-poll-cancel-btn" onClick={() => setShowPollModal(false)}>Cancel</button>
-              <button
-                type="button"
-                className="ww-poll-send-btn"
-                disabled={!pollQuestion.trim() || pollOptions.filter((o) => o.trim()).length < 2}
-                onClick={sendPoll}
-              >
-                Send Poll
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
 
 export default ChatApp;
+

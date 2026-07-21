@@ -977,7 +977,7 @@
 }
 
 .ww-call-actions button,
-.ww-call-modal.video > button {
+.ww-call-controls button {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -994,7 +994,29 @@
 }
 
 .ww-call-actions .decline,
-.ww-call-modal.video .decline {
+.ww-call-controls .decline {
+  background: #ef4444;
+  color: white;
+}
+
+.ww-call-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.ww-call-control-btn {
+  width: 44px;
+  height: 44px;
+  padding: 0 !important;
+  border-radius: 50%;
+  background: #f0f2f5;
+  color: #111b21;
+  justify-content: center;
+}
+
+.ww-call-control-btn.off {
   background: #ef4444;
   color: white;
 }
@@ -1070,11 +1092,32 @@
 
 /* ---------- Mobile-only elements: hidden by default on desktop ---------- */
 .ww-back-btn { display: none; }
-.ww-list-header-icons { display: none; }
 .ww-mobile-tabs { display: none; }
 .ww-fab { display: none; }
 .ww-menu-dropdown { display: none; }
 .ww-tab-placeholder { display: none; }
+
+/* List header icons (search + 3-dot menu) — always visible on all screen sizes */
+.ww-list-header-icons {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.ww-list-header-icons button {
+  background: none;
+  border: none;
+  color: #54656f;
+  cursor: pointer;
+  display: flex;
+  padding: 6px;
+  border-radius: 50%;
+  transition: background .15s ease;
+}
+
+.ww-list-header-icons button:hover {
+  background: #e9edef;
+}
 
 .ww-list-header-top {
   display: flex;
@@ -1543,18 +1586,26 @@
   top: 4px;
   right: 4px;
   border: none;
-  background: rgba(255, 255, 255, .6);
+  background: rgba(255, 255, 255, .85);
   color: #54656f;
   border-radius: 50%;
-  padding: 3px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity .15s ease;
+  opacity: 0.35;
+  transition: opacity .15s ease, background .15s ease;
   display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 2px rgba(0,0,0,.1);
+  z-index: 5;
 }
 
-.ww-message:hover .ww-msg-menu-btn {
+.ww-message:hover .ww-msg-menu-btn,
+.ww-msg-menu-btn:focus {
   opacity: 1;
+  background: white;
 }
 
 .ww-msg-menu {
@@ -1977,3 +2028,1828 @@
     width: auto;
   }
 }
+
+.ww-bulk-action-bar {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px; background: #f0f2f5; border-top: 1px solid #e9edef;
+}
+.ww-bulk-action-bar button { padding: 7px 12px; border: none; border-radius: 8px; background: #4f46e5; color: white; cursor: pointer; }
+.ww-bulk-action-bar button:disabled { background: #c7d2fe; cursor: not-allowed; }
+.ww-archived-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 4px; }
+.ww-archived-row button:first-child { flex: 1; display: flex; align-items: center; gap: 10px; background: none; border: none; text-align: left; cursor: pointer; padding: 6px; }
+.ww-archived-row button:last-child { border: none; background: none; color: #4f46e5; cursor: pointer; font-size: 13px; }
+.ww-lock-screen {
+  position: fixed; inset: 0; z-index: 1000; background: #111b21; color: white;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+}
+.ww-lock-screen input { padding: 10px 14px; border-radius: 8px; border: none; width: 160px; text-align: center; font-size: 20px; letter-spacing: 6px; }
+
+/* ========== NEW FEATURES STYLES ========== */
+
+/* Pinned message strip */
+.ww-pinned-message-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  font-size: 13px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.ww-pinned-label {
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+.ww-pinned-preview {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.95;
+}
+
+.ww-pinned-message-strip button {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s;
+  color: white;
+  flex-shrink: 0;
+}
+
+.ww-pinned-message-strip button:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Reactions */
+.ww-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.ww-reaction-chip {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 8px;
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.ww-reaction-chip:hover {
+  background: rgba(0, 0, 0, 0.1);
+  transform: scale(1.05);
+}
+
+.ww-reaction-chip.mine {
+  background: rgba(103, 126, 234, 0.15);
+  border-color: rgba(103, 126, 234, 0.3);
+}
+
+.ww-reaction-chip span {
+  font-size: 11px;
+  font-weight: 600;
+  color: #667eea;
+}
+
+.ww-reaction-picker {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 8px;
+  display: flex;
+  gap: 4px;
+  padding: 8px;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  z-index: 10;
+  flex-wrap: wrap;
+  max-width: 280px;
+}
+
+.ww-reaction-picker button {
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  transition: background 0.2s;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ww-reaction-picker button:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+/* Edit message inline */
+.ww-edit-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 8px;
+}
+
+.ww-edit-input {
+  flex: 1;
+  background: white;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 14px;
+  outline: none;
+}
+
+.ww-edit-input:focus {
+  border-color: #667eea;
+}
+
+.ww-edit-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.ww-edit-actions button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  color: #667eea;
+  transition: background 0.2s;
+}
+
+.ww-edit-actions button:hover {
+  background: rgba(103, 126, 234, 0.1);
+}
+
+.ww-edited-label {
+  font-size: 11px;
+  opacity: 0.6;
+  font-style: italic;
+  margin-left: 4px;
+}
+
+/* Star indicator */
+.ww-star-indicator {
+  fill: gold;
+  color: gold;
+  margin-left: 4px;
+}
+
+/* Pin badge in chat list */
+.ww-pin-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 14px;
+}
+
+.ww-conversation.pinned {
+  background: linear-gradient(135deg, rgba(103, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+}
+
+/* Global search results */
+.ww-global-search-results {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-top: none;
+  max-height: 400px;
+  overflow-y: auto;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.ww-search-section-label {
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: #f9fafb;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.ww-search-result-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.2s;
+  font-size: 14px;
+  color: #1f2937;
+}
+
+.ww-search-result-row:hover {
+  background: rgba(103, 126, 234, 0.05);
+}
+
+.ww-search-msg-preview {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.7;
+}
+
+.ww-search-msg-time {
+  font-size: 11px;
+  opacity: 0.5;
+}
+
+.ww-search-empty {
+  padding: 16px;
+  text-align: center;
+  opacity: 0.5;
+  font-size: 13px;
+}
+
+/* Favourites section */
+.ww-favourites-section {
+  margin-bottom: 8px;
+}
+
+.ww-section-divider-label {
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.ww-conversation.favourite {
+  border-left: 3px solid gold;
+}
+
+/* Self profile panel */
+.ww-profile-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+}
+
+.ww-profile-avatar-wrap {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  margin: 0 auto;
+  cursor: pointer;
+  border-radius: 50%;
+  overflow: hidden;
+}
+
+.ww-profile-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ww-profile-avatar-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s;
+  font-size: 32px;
+}
+
+.ww-profile-avatar-wrap:hover .ww-profile-avatar-overlay {
+  opacity: 1;
+}
+
+.ww-profile-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ww-profile-field label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #6b7280;
+}
+
+.ww-profile-field input,
+.ww-profile-field textarea {
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.ww-profile-field input:focus,
+.ww-profile-field textarea:focus {
+  border-color: #667eea;
+}
+
+.ww-profile-hint {
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+.ww-profile-save-btn {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.ww-profile-save-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(103, 126, 234, 0.3);
+}
+
+.ww-profile-save-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Dark mode adjustments */
+.ww-dark .ww-pinned-message-strip {
+  background: linear-gradient(135deg, #4c51bf 0%, #553c9a 100%);
+}
+
+.ww-dark .ww-reaction-chip {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.ww-dark .ww-reaction-chip.mine {
+  background: rgba(103, 126, 234, 0.2);
+  border-color: rgba(103, 126, 234, 0.4);
+}
+
+.ww-dark .ww-reaction-picker {
+  background: #1f2937;
+  border-color: #374151;
+}
+
+.ww-dark .ww-edit-form {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ww-dark .ww-edit-input {
+  background: #1f2937;
+  border-color: #374151;
+  color: white;
+}
+
+.ww-dark .ww-global-search-results {
+  background: #1f2937;
+  border-color: #374151;
+}
+
+.ww-dark .ww-search-section-label {
+  background: #111827;
+  border-color: #374151;
+  color: #9ca3af;
+}
+
+.ww-dark .ww-search-result-row {
+  color: #e5e7eb;
+}
+
+.ww-dark .ww-conversation.pinned {
+  background: linear-gradient(135deg, rgba(103, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+}
+
+/* ========== POLL FEATURE STYLES ========== */
+
+/* Attach sheet poll icon */
+.ww-attach-icon.poll {
+  background: #8b5cf6;
+  font-size: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+}
+
+/* ---- Poll creation modal ---- */
+.ww-poll-modal {
+  width: 420px;
+  max-width: 95vw;
+  max-height: 85vh;
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 20px 50px rgba(0,0,0,.25);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ww-poll-modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ww-poll-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ww-poll-field label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ww-poll-field input[type="text"] {
+  padding: 10px 12px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 10px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color .2s;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ww-poll-field input[type="text"]:focus {
+  border-color: #8b5cf6;
+}
+
+.ww-poll-option-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ww-poll-option-row input {
+  flex: 1;
+}
+
+.ww-poll-remove-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #9ca3af;
+  display: flex;
+  padding: 4px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: color .2s, background .2s;
+}
+
+.ww-poll-remove-btn:hover {
+  color: #ef4444;
+  background: #fef2f2;
+}
+
+.ww-poll-add-option-btn {
+  background: none;
+  border: 1.5px dashed #d1d5db;
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: 14px;
+  color: #8b5cf6;
+  font-weight: 600;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  transition: border-color .2s, background .2s;
+}
+
+.ww-poll-add-option-btn:hover {
+  border-color: #8b5cf6;
+  background: #f5f3ff;
+}
+
+.ww-poll-multiple-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: #374151;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.ww-poll-multiple-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #8b5cf6;
+  cursor: pointer;
+}
+
+.ww-poll-modal-footer {
+  display: flex;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid #f0f2f5;
+  justify-content: flex-end;
+}
+
+.ww-poll-cancel-btn {
+  padding: 10px 20px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: white;
+  color: #6b7280;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .2s;
+}
+
+.ww-poll-cancel-btn:hover {
+  background: #f9fafb;
+}
+
+.ww-poll-send-btn {
+  padding: 10px 24px;
+  border: none;
+  border-radius: 10px;
+  background: #8b5cf6;
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .2s, transform .1s;
+}
+
+.ww-poll-send-btn:hover:not(:disabled) {
+  background: #7c3aed;
+  transform: translateY(-1px);
+}
+
+.ww-poll-send-btn:disabled {
+  background: #ddd6fe;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ---- Poll message bubble ---- */
+.ww-poll-bubble {
+  min-width: 240px;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ww-poll-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.ww-poll-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.ww-poll-question {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: #111b21;
+  line-height: 1.35;
+}
+
+.ww-poll-closed-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  background: #f3f4f6;
+  color: #6b7280;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 20px;
+  width: fit-content;
+}
+
+.ww-poll-options {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.ww-poll-option {
+  position: relative;
+  width: 100%;
+  background: #f3f4f6;
+  border: 1.5px solid transparent;
+  border-radius: 10px;
+  padding: 9px 12px;
+  cursor: pointer;
+  overflow: hidden;
+  text-align: left;
+  transition: border-color .2s;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ww-poll-option:hover:not(:disabled):not(.closed) {
+  border-color: #8b5cf6;
+}
+
+.ww-poll-option.voted {
+  border-color: #8b5cf6;
+  background: #f5f3ff;
+}
+
+.ww-poll-option.closed {
+  cursor: default;
+}
+
+.ww-poll-option-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(139, 92, 246, 0.12);
+  border-radius: 10px 0 0 10px;
+  transition: width .4s ease;
+  z-index: 0;
+}
+
+.ww-poll-option.voted .ww-poll-option-bar {
+  background: rgba(139, 92, 246, 0.2);
+}
+
+.ww-poll-option-text {
+  position: relative;
+  z-index: 1;
+  font-size: 13.5px;
+  color: #111b21;
+  font-weight: 500;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ww-poll-check {
+  color: #8b5cf6;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.ww-poll-option-pct {
+  position: relative;
+  z-index: 1;
+  font-size: 12px;
+  font-weight: 700;
+  color: #6b7280;
+  flex-shrink: 0;
+}
+
+.ww-poll-option.voted .ww-poll-option-pct {
+  color: #8b5cf6;
+}
+
+.ww-poll-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11.5px;
+  color: #8696a0;
+}
+
+.ww-poll-close-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #8b5cf6;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+  transition: background .2s;
+}
+
+.ww-poll-close-btn:hover {
+  background: #f5f3ff;
+}
+
+/* Dark mode */
+.ww-dark .ww-poll-modal { background: #1f2937; }
+.ww-dark .ww-poll-field input[type="text"] { background: #111827; border-color: #374151; color: white; }
+.ww-dark .ww-poll-question { color: #f3f4f6; }
+.ww-dark .ww-poll-option { background: #374151; }
+.ww-dark .ww-poll-option.voted { background: #2d1f4f; }
+.ww-dark .ww-poll-option-text { color: #f3f4f6; }
+.ww-dark .ww-poll-cancel-btn { background: #374151; border-color: #4b5563; color: #d1d5db; }
+
+/* ========== VOICE CALL BUTTON ========== */
+.ww-header-icons button[title="Voice call"] {
+  color: #54656f;
+}
+.ww-header-icons button[title="Voice call"]:hover:not(:disabled) {
+  color: #111b21;
+  background: rgba(0,0,0,0.06);
+}
+
+/* ========== STATUS PANEL ========== */
+.ww-status-panel {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.ww-status-section-label {
+  padding: 6px 16px 4px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #8696a0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.ww-my-status-row,
+.ww-status-entry-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 120ms;
+}
+
+.ww-my-status-row:hover,
+.ww-status-entry-row:hover {
+  background: rgba(0,0,0,0.04);
+}
+
+.ww-status-avatar-btn {
+  position: relative;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.ww-status-add-plus {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 18px;
+  height: 18px;
+  background: #25d366;
+  color: white;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid white;
+  line-height: 1;
+}
+
+/* Avatar ring for status */
+.ww-avatar.has-status {
+  outline: 3px solid #25d366;
+  outline-offset: 2px;
+}
+.ww-avatar.status-viewed {
+  outline: 3px solid #8696a0;
+  outline-offset: 2px;
+}
+
+.ww-status-row-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.ww-status-row-body strong {
+  font-size: 14px;
+  color: #111b21;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ww-status-row-body span {
+  font-size: 12px;
+  color: #8696a0;
+}
+
+.ww-status-add-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #54656f;
+  display: flex;
+  padding: 6px;
+  border-radius: 50%;
+  transition: background 120ms;
+  flex-shrink: 0;
+}
+.ww-status-add-btn:hover { background: rgba(0,0,0,0.06); }
+
+/* Add status form */
+.ww-add-status-form {
+  margin: 0 12px 12px;
+  background: white;
+  border-radius: 12px;
+  border: 1px solid #e9edef;
+  overflow: hidden;
+}
+
+.ww-add-status-form textarea {
+  width: 100%;
+  border: none;
+  padding: 12px 14px;
+  font-size: 14px;
+  resize: none;
+  outline: none;
+  font-family: inherit;
+  box-sizing: border-box;
+  background: transparent;
+}
+
+.ww-status-bg-row {
+  display: flex;
+  gap: 8px;
+  padding: 8px 14px;
+  overflow-x: auto;
+}
+
+.ww-status-bg-swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2.5px solid transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+.ww-status-bg-swatch.selected {
+  border-color: #111b21;
+  transform: scale(1.2);
+}
+
+.ww-add-status-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid #f0f2f5;
+}
+
+.ww-status-cancel-btn {
+  padding: 7px 16px;
+  border: 1px solid #e9edef;
+  border-radius: 8px;
+  background: white;
+  color: #6b7280;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ww-status-post-btn {
+  padding: 7px 20px;
+  border: none;
+  border-radius: 8px;
+  background: #25d366;
+  color: white;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.ww-status-post-btn:disabled { background: #c8f7db; cursor: not-allowed; }
+.ww-status-post-btn:hover:not(:disabled) { background: #1ebe5d; }
+
+/* My status items mini-cards */
+.ww-my-status-items {
+  display: flex;
+  gap: 8px;
+  padding: 4px 16px 12px;
+  overflow-x: auto;
+}
+
+.ww-my-status-item {
+  position: relative;
+  min-width: 80px;
+  max-width: 120px;
+  padding: 10px 24px 10px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  color: white;
+  flex-shrink: 0;
+  word-break: break-word;
+}
+
+.ww-status-delete-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: rgba(0,0,0,0.25);
+  border: none;
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: white;
+}
+
+/* ========== STATUS VIEWER MODAL ========== */
+.ww-status-viewer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.75);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ww-status-viewer {
+  width: 360px;
+  max-width: 95vw;
+  border-radius: 16px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 480px;
+  position: relative;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.4);
+}
+
+.ww-status-viewer-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 14px 10px;
+  background: rgba(0,0,0,0.2);
+}
+
+.ww-status-viewer-name {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.ww-status-viewer-name strong { font-size: 14px; color: white; }
+.ww-status-viewer-name span  { font-size: 11px; color: rgba(255,255,255,0.7); }
+
+.ww-status-viewer-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: white;
+  display: flex;
+  padding: 4px;
+  border-radius: 50%;
+  transition: background 120ms;
+}
+.ww-status-viewer-close:hover { background: rgba(255,255,255,0.15); }
+
+.ww-status-progress {
+  display: flex;
+  gap: 4px;
+  padding: 6px 14px;
+}
+.ww-status-progress-seg {
+  flex: 1;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255,255,255,0.35);
+}
+.ww-status-progress-seg.active  { background: white; }
+.ww-status-progress-seg.done    { background: rgba(255,255,255,0.8); }
+
+.ww-status-viewer-text {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 20px;
+  font-size: 22px;
+  font-weight: 600;
+  color: white;
+  text-align: center;
+  word-break: break-word;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.3);
+}
+
+.ww-status-viewer-nav {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 8px 8px;
+}
+.ww-status-viewer-nav button {
+  background: rgba(255,255,255,0.2);
+  border: none;
+  color: white;
+  font-size: 24px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 120ms;
+}
+.ww-status-viewer-nav button:hover:not(:disabled) { background: rgba(255,255,255,0.35); }
+.ww-status-viewer-nav button:disabled { opacity: 0.3; cursor: default; }
+
+.ww-status-viewer-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  background: rgba(0,0,0,0.2);
+  color: rgba(255,255,255,0.85);
+  font-size: 12px;
+}
+
+/* Dark mode */
+.ww-dark .ww-status-row-body strong { color: #e9edef; }
+.ww-dark .ww-my-status-row:hover,
+.ww-dark .ww-status-entry-row:hover { background: rgba(255,255,255,0.05); }
+.ww-dark .ww-add-status-form { background: #1f2937; border-color: #374151; }
+.ww-dark .ww-add-status-form textarea { color: white; }
+.ww-dark .ww-status-cancel-btn { background: #374151; border-color: #4b5563; color: #d1d5db; }
+
+/* ========== STATUS PANEL HEADER (back nav) ========== */
+.ww-status-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px 8px;
+  border-bottom: 1px solid #f0f2f5;
+}
+
+.ww-status-panel-header h3 {
+  font-size: 16px;
+  font-weight: 700;
+  color: #111b21;
+  margin: 0;
+}
+
+.ww-status-back-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #54656f;
+  display: flex;
+  padding: 6px;
+  border-radius: 50%;
+  transition: background 120ms;
+}
+
+.ww-status-back-btn:hover {
+  background: rgba(0,0,0,0.06);
+  color: #111b21;
+}
+
+.ww-dark .ww-status-panel-header { border-color: #374151; }
+.ww-dark .ww-status-panel-header h3 { color: #f3f4f6; }
+.ww-dark .ww-status-back-btn { color: #9ca3af; }
+.ww-dark .ww-status-back-btn:hover { background: rgba(255,255,255,0.08); color: white; }
+
+/* ================================================================
+   CALL MODALS — Incoming + Active (Voice & Video)
+   ================================================================ */
+
+/* ---- Incoming call modal ---- */
+.ww-incoming-call-modal {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  z-index: 12000;
+  width: 300px;
+  background: linear-gradient(160deg, #1a2a3a 0%, #0d1b2a 100%);
+  border-radius: 20px;
+  padding: 24px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  animation: call-slide-in 0.3s cubic-bezier(0.2, 0, 0, 1.2);
+}
+
+@keyframes call-slide-in {
+  from { opacity: 0; transform: translateY(-20px) scale(0.95); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.ww-incoming-call-type {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.55);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 4px;
+}
+
+.ww-call-avatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  font-weight: 700;
+  color: white;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 6px rgba(99,102,241,0.2);
+  animation: call-pulse 2s ease-in-out infinite;
+}
+
+@keyframes call-pulse {
+  0%, 100% { box-shadow: 0 0 0 6px rgba(99,102,241,0.2); }
+  50%       { box-shadow: 0 0 0 14px rgba(99,102,241,0.08); }
+}
+
+.ww-call-caller-name {
+  font-size: 18px;
+  font-weight: 700;
+  color: white;
+  margin: 4px 0 0;
+}
+
+.ww-call-status-text {
+  font-size: 13px;
+  color: rgba(255,255,255,0.5);
+  margin: 0 0 8px;
+}
+
+.ww-incoming-call-actions {
+  display: flex;
+  gap: 32px;
+  margin-top: 8px;
+}
+
+.ww-call-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ww-call-btn span {
+  font-size: 11px;
+  color: rgba(255,255,255,0.7);
+}
+
+.ww-call-btn .icon-wrap,
+.ww-call-btn > svg {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s;
+}
+
+.ww-call-btn > svg {
+  padding: 14px;
+  box-sizing: border-box;
+}
+
+.ww-call-btn.decline > svg {
+  background: #ef4444;
+}
+
+.ww-call-btn.accept > svg {
+  background: #22c55e;
+}
+
+.ww-call-btn:hover > svg { transform: scale(1.08); }
+
+/* ---- Active call modal wrapper ---- */
+.ww-active-call-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 11000;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ww-active-call-modal.voice {
+  background: linear-gradient(160deg, #1a2a3a 0%, #0d1b2a 100%);
+}
+
+.ww-active-call-modal.video {
+  background: #111;
+}
+
+/* ---- Minimized PiP ---- */
+.ww-active-call-modal.minimized {
+  inset: auto;
+  bottom: 24px;
+  right: 24px;
+  width: auto;
+  height: auto;
+  background: transparent;
+  pointer-events: none;
+}
+
+.ww-call-pip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #1a2a3a;
+  border-radius: 14px;
+  padding: 10px 14px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.4);
+  cursor: pointer;
+  pointer-events: all;
+  min-width: 220px;
+  border: 1px solid rgba(255,255,255,0.1);
+  transition: box-shadow 0.2s;
+}
+
+.ww-call-pip:hover { box-shadow: 0 12px 36px rgba(0,0,0,0.5); }
+
+.ww-call-pip-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  color: white;
+  flex-shrink: 0;
+}
+
+.ww-call-pip-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ww-call-pip-info strong { font-size: 13px; color: white; }
+.ww-call-pip-info span  { font-size: 11px; color: rgba(255,255,255,0.55); }
+
+.ww-call-pip-end {
+  background: #ef4444;
+  border: none;
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: white;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.ww-call-pip-end:hover { background: #dc2626; }
+
+/* ---- Top bar (minimize + add participant) ---- */
+.ww-voice-call-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 8px;
+}
+
+.ww-video-call-name {
+  font-size: 14px;
+  color: rgba(255,255,255,0.8);
+  font-weight: 600;
+  flex: 1;
+  text-align: center;
+}
+
+.ww-call-topbar-btn {
+  background: rgba(255,255,255,0.1);
+  border: none;
+  border-radius: 50%;
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: white;
+  transition: background 0.15s;
+}
+.ww-call-topbar-btn:hover { background: rgba(255,255,255,0.2); }
+
+/* ---- Voice call body ---- */
+.ww-voice-call-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.ww-voice-avatar-ring {
+  position: relative;
+  padding: 8px;
+}
+
+.ww-voice-avatar {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 48px;
+  font-weight: 700;
+  color: white;
+  position: relative;
+  z-index: 1;
+  animation: voice-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes voice-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(99,102,241,0.4),
+                0 0 0 0 rgba(99,102,241,0.2);
+  }
+  50% {
+    box-shadow: 0 0 0 20px rgba(99,102,241,0.15),
+                0 0 0 40px rgba(99,102,241,0.05);
+  }
+}
+
+.ww-voice-caller-name {
+  font-size: 26px;
+  font-weight: 700;
+  color: white;
+  margin: 8px 0 0;
+  text-align: center;
+}
+
+.ww-voice-status {
+  font-size: 14px;
+  color: rgba(255,255,255,0.55);
+  margin: 0;
+  letter-spacing: 0.03em;
+}
+
+.ww-voice-status.connected { color: #4ade80; font-variant-numeric: tabular-nums; }
+.ww-voice-status.ringing   { color: rgba(255,255,255,0.5); }
+
+/* ---- Voice call controls ---- */
+.ww-voice-call-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 28px 20px 40px;
+  background: rgba(0,0,0,0.25);
+}
+
+.ww-vc-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255,255,255,0.12);
+  border: none;
+  border-radius: 50%;
+  width: 58px;
+  height: 58px;
+  cursor: pointer;
+  color: white;
+  transition: background 0.15s, transform 0.15s;
+  justify-content: center;
+}
+
+.ww-vc-btn span {
+  display: none; /* label shown below on wider screens */
+}
+
+@media (min-width: 480px) {
+  .ww-voice-call-controls {
+    gap: 28px;
+    padding: 32px 40px 48px;
+  }
+  .ww-vc-btn {
+    width: 64px;
+    height: 64px;
+    border-radius: 20px;
+    gap: 0;
+  }
+  .ww-vc-btn span {
+    display: block;
+    font-size: 10px;
+    color: rgba(255,255,255,0.65);
+    margin-top: 4px;
+    font-weight: 600;
+  }
+  /* Wider layout: icon on top, label below → use column flex outside circle */
+  .ww-vc-btn {
+    background: none;
+    border-radius: 0;
+    width: auto;
+    height: auto;
+    padding: 0;
+  }
+  .ww-vc-btn > svg {
+    background: rgba(255,255,255,0.12);
+    border-radius: 50%;
+    padding: 16px;
+    box-sizing: content-box;
+    transition: background 0.15s;
+    width: 28px;
+    height: 28px;
+  }
+  .ww-vc-btn:hover > svg { background: rgba(255,255,255,0.22); }
+  .ww-vc-btn.off > svg { background: rgba(255,255,255,0.35); }
+  .ww-vc-btn.on  > svg { background: #6366f1; }
+}
+
+.ww-vc-btn.off { background: rgba(255,255,255,0.3); }
+.ww-vc-btn.on  { background: #6366f1; }
+.ww-vc-btn.end-call { background: #ef4444; }
+.ww-vc-btn.end-call:hover { background: #dc2626; }
+
+@media (min-width: 480px) {
+  .ww-vc-btn.end-call > svg { background: #ef4444 !important; }
+  .ww-vc-btn.end-call:hover > svg { background: #dc2626 !important; }
+}
+
+.ww-vc-btn:hover:not(.end-call) { transform: scale(1.06); }
+
+/* ================================================================
+   CONTACT BUBBLE 3-DOT MENU
+   ================================================================ */
+.ww-contact-bubble {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 0;
+  position: relative;
+}
+
+.ww-contact-bubble-name {
+  flex: 1;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #111b21;
+}
+
+/* On sent (me) bubbles the background is coloured — force dark readable text */
+.ww-message.me .ww-contact-bubble-name {
+  color: #1a1a2e;
+}
+
+.ww-message.me .ww-contact-bubble .ww-mini-avatar {
+  background: rgba(0,0,0,0.18);
+  color: white;
+}
+
+.ww-message.me .ww-contact-bubble-dots {
+  color: rgba(0,0,0,0.45);
+}
+
+.ww-message.me .ww-contact-bubble-dots:hover {
+  background: rgba(0,0,0,0.1);
+  color: rgba(0,0,0,0.7);
+}
+
+.ww-contact-bubble-menu-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.ww-contact-bubble-dots {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #8696a0;
+  display: flex;
+  padding: 3px;
+  border-radius: 50%;
+  transition: background 120ms, color 120ms;
+}
+
+.ww-contact-bubble-dots:hover {
+  background: rgba(0,0,0,0.06);
+  color: #54656f;
+}
+
+.ww-contact-bubble-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  min-width: 160px;
+  background: white;
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.14);
+  border: 1px solid rgba(0,0,0,0.06);
+  z-index: 500;
+  overflow: hidden;
+  animation: tdm-in 140ms cubic-bezier(0.2,0,0,1.2);
+}
+
+.ww-contact-bubble-dropdown button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  background: none;
+  border: none;
+  font-size: 13.5px;
+  color: #111b21;
+  cursor: pointer;
+  text-align: left;
+  transition: background 100ms;
+}
+
+.ww-contact-bubble-dropdown button:hover {
+  background: #f5f6f6;
+}
+
+/* ================================================================
+   CALLS PANEL 3-DOT DROPDOWN
+   ================================================================ */
+.ww-calls-menu-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  min-width: 190px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+  border: 1px solid rgba(0,0,0,0.06);
+  z-index: 600;
+  overflow: hidden;
+  animation: tdm-in 150ms cubic-bezier(0.2,0,0,1.2);
+}
+
+.ww-calls-menu-dropdown button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: none;
+  border: none;
+  font-size: 14px;
+  color: #111b21;
+  cursor: pointer;
+  text-align: left;
+  transition: background 100ms;
+}
+
+.ww-calls-menu-dropdown button:hover {
+  background: #f5f6f6;
+}
+
+/* ================================================================
+   CALL SETTINGS MODAL ROWS
+   ================================================================ */
+.ww-call-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid #f0f2f5;
+}
+
+.ww-call-settings-row:last-child {
+  border-bottom: none;
+}
+
+.ww-call-settings-row > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.ww-call-settings-row strong {
+  display: block;
+  font-size: 14px;
+  color: #111b21;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.ww-call-settings-row p {
+  font-size: 12px;
+  color: #8696a0;
+  margin: 0;
+}
+
+.ww-call-settings-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: #25d366;
+  background: #e7fce7;
+  padding: 3px 8px;
+  border-radius: 20px;
+  flex-shrink: 0;
+}
+
+.ww-call-settings-select {
+  border: 1.5px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+  background: white;
+  color: #111b21;
+  cursor: pointer;
+  outline: none;
+  flex-shrink: 0;
+}
+
+.ww-call-settings-select:focus {
+  border-color: #25d366;
+}
+
+/* ================================================================
+   CAMERA CAPTURE MODAL
+   ================================================================ */
+.ww-camera-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ww-camera-modal {
+  width: 480px;
+  max-width: 96vw;
+  background: #111;
+  border-radius: 16px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+
+.ww-camera-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: rgba(0,0,0,0.4);
+  color: white;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.ww-camera-modal-header button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: rgba(255,255,255,0.8);
+  display: flex;
+  padding: 4px;
+  border-radius: 50%;
+  transition: background 120ms;
+}
+
+.ww-camera-modal-header button:hover {
+  background: rgba(255,255,255,0.15);
+  color: white;
+}
+
+.ww-camera-preview {
+  width: 100%;
+  aspect-ratio: 4/3;
+  object-fit: cover;
+  background: #000;
+  display: block;
+}
+
+.ww-camera-modal-actions {
+  display: flex;
+  gap: 10px;
+  padding: 14px 16px;
+  background: rgba(0,0,0,0.4);
+  justify-content: flex-end;
+}
+
+.ww-camera-cancel-btn {
+  padding: 9px 20px;
+  border: 1px solid rgba(255,255,255,0.25);
+  border-radius: 10px;
+  background: transparent;
+  color: rgba(255,255,255,0.8);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 150ms;
+}
+
+.ww-camera-cancel-btn:hover {
+  background: rgba(255,255,255,0.1);
+}
+
+.ww-camera-capture-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 22px;
+  border: none;
+  border-radius: 10px;
+  background: #25d366;
+  color: white;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 150ms;
+}
+
+.ww-camera-capture-btn:hover {
+  background: #1ebe5d;
+}
+
+/* Dark mode adjustments */
+.ww-dark .ww-contact-bubble-name { color: #f3f4f6; font-weight: 700; }
+.ww-dark .ww-message.me .ww-contact-bubble-name { color: #f0f0f0; }
+.ww-dark .ww-contact-bubble-dropdown,
+.ww-dark .ww-calls-menu-dropdown { background: #1f2937; border-color: #374151; }
+.ww-dark .ww-contact-bubble-dropdown button,
+.ww-dark .ww-calls-menu-dropdown button { color: #e9edef; }
+.ww-dark .ww-contact-bubble-dropdown button:hover,
+.ww-dark .ww-calls-menu-dropdown button:hover { background: rgba(255,255,255,0.07); }
+.ww-dark .ww-call-settings-row { border-color: #374151; }
+.ww-dark .ww-call-settings-row strong { color: #f3f4f6; }
+.ww-dark .ww-call-settings-select { background: #374151; border-color: #4b5563; color: #f3f4f6; }

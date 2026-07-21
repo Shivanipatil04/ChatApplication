@@ -1,0 +1,176 @@
+/* ===== ThreeDotMenu — polished WhatsApp-style dropdown ===== */
+
+.ww-three-dot-menu {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* ---- Trigger button ---- */
+.ww-three-dot-button {
+  background: transparent;
+  border: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  cursor: pointer;
+  color: #54656f;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 140ms ease, color 140ms ease;
+  flex-shrink: 0;
+}
+
+.ww-three-dot-button:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #111b21;
+}
+
+.ww-three-dot-button[aria-expanded="true"] {
+  background: rgba(0, 0, 0, 0.08);
+  color: #111b21;
+}
+
+/* On dark/purple mobile header */
+@media (max-width: 700px) {
+  .ww-three-dot-button            { color: rgba(255,255,255,0.9); }
+  .ww-three-dot-button:hover      { background: rgba(255,255,255,0.15); color: #fff; }
+  .ww-three-dot-button[aria-expanded="true"] { background: rgba(255,255,255,0.15); color: #fff; }
+}
+
+/* ---- Dropdown popup ---- */
+.ww-three-dot-popup {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  min-width: 240px;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow:
+    0 2px 8px rgba(0,0,0,0.08),
+    0 8px 28px rgba(0,0,0,0.14);
+  border: 1px solid rgba(0,0,0,0.06);
+  overflow: hidden;
+  z-index: 9999;
+  transform-origin: top right;
+  animation: tdm-in 160ms cubic-bezier(0.2, 0, 0, 1.2);
+  padding: 4px 0;
+}
+
+.ww-three-dot-popup.left {
+  right: auto;
+  left: 0;
+  transform-origin: top left;
+}
+
+@keyframes tdm-in {
+  from { opacity: 0; transform: translateY(-8px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+
+/* ---- Menu items ---- */
+.ww-three-dot-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0;
+  padding: 0 16px;
+  height: 46px;
+  background: transparent;
+  border: none;
+  color: #111b21;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 400;
+  text-align: left;
+  transition: background 100ms ease;
+}
+
+.ww-three-dot-item:hover:not(:disabled) {
+  background: #f5f6f6;
+}
+
+.ww-three-dot-item:active:not(:disabled) {
+  background: #ebedf0;
+}
+
+/* Left side: icon + label together */
+.ww-three-dot-item-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Icon wrapper — consistent sizing + subtle color */
+.ww-three-dot-icon-wrap {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #54656f;
+  flex-shrink: 0;
+}
+
+.ww-three-dot-item.danger {
+  color: #e53e3e;
+}
+
+.ww-three-dot-item.danger .ww-three-dot-icon-wrap {
+  color: #e53e3e;
+}
+
+.ww-three-dot-item.danger:hover:not(:disabled) {
+  background: #fff5f5;
+}
+
+/* Active state (e.g. App Lock · On) */
+.ww-three-dot-item.active .ww-three-dot-icon-wrap {
+  color: #4f46e5;
+}
+
+.ww-three-dot-item.active {
+  color: #4f46e5;
+  font-weight: 500;
+}
+
+/* Disabled items */
+.ww-three-dot-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* "Coming soon" hint */
+.ww-three-dot-hint {
+  font-size: 11px;
+  color: #aab4be;
+  flex-shrink: 0;
+  font-style: italic;
+}
+
+/* ---- Separators ---- */
+.ww-three-dot-sep {
+  height: 1px;
+  background: #f0f2f5;
+  margin: 3px 0;
+}
+
+/* ---- Touch / small screens ---- */
+@media (max-width: 420px) {
+  .ww-three-dot-popup {
+    min-width: 200px;
+    border-radius: 10px;
+  }
+  .ww-three-dot-item {
+    height: 44px;
+    font-size: 13.5px;
+    padding: 0 14px;
+  }
+  .ww-three-dot-item-left {
+    gap: 12px;
+  }
+}

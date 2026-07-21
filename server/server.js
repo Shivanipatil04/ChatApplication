@@ -5,6 +5,8 @@ const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
 const mongoose = require('mongoose');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const authRoutes = require('./Routes/authroutes');
 const { auth, authenticateToken } = require('./middleware/auth');
 const User = require('./models/User');
@@ -12,6 +14,49 @@ const Chat = require('./models/Chat');
 const Group = require('./models/Group');
 const GroupMessage = require('./models/GroupMessage');
 const CallHistory = require('./models/CallHistory');
+const GroupCallHistory = require('./models/GroupCallHistory');
+const Status = require('./models/Status');
+
+// ---- Cloudinary + Multer setup ----
+const cloudinary = require('cloudinary').v2;
+const multer = require('multer');
+
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key:    process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+// Determine the correct Cloudinary resource_type from the file's MIME type
+const resourceTypeFor = (mimetype = '') => {
+    if (mimetype.startsWith('image/')) return 'image';
+    if (mimetype.startsWith('video/')) return 'video';
+    if (mimetype.startsWith('audio/')) return 'video'; // Cloudinary stores audio under 'video'
+    return 'raw'; // PDF, DOCX, etc.
+};
+
+// Memory storage — we stream the buffer directly to Cloudinary
+const multerMemory = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB hard cap
+    fileFilter: (_req, file, cb) => {
+        // Allow images, video, audio, and common documents
+        const allowed = [
+            'image/', 'video/', 'audio/',
+            'application/pdf',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.ms-excel',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-powerpoint',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            'text/plain',
+            'application/zip',
+        ];
+        const ok = allowed.some((t) => file.mimetype.startsWith(t));
+        cb(ok ? null : new Error('File type not allowed'), ok);
+    },
+});
 
 const app = express();
 const server = http.createServer(app);
@@ -30,13 +75,65 @@ const io = new Server(server, {
     credentials: true,
     methods: ["GET", "POST", "PATCH", "DELETE"],
   },
-  // audio/image/file messages travel over the socket as base64 - bump the default 1MB cap a bit
-  maxHttpBufferSize: 8 * 1024 * 1024,
+  // audio/image/file messages now send a Cloudinary URL instead of base64 —
+  // the socket payload is tiny. Keep a small buffer just in case.
+  maxHttpBufferSize: 1 * 1024 * 1024,
 });
 
+app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
-app.use('/api/auth', authRoutes);
+
+// Rate limiting — auth endpoints get a stricter cap
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, message: { message: 'Too many requests, please try again later.' } });
+const apiLimiter = rateLimit({ windowMs: 1 * 60 * 1000, max: 200 });
+app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api', apiLimiter);
+
+// ============================================================
+// UPLOAD ROUTE  — POST /api/upload
+// Accepts a single file, streams it to Cloudinary via buffer,
+// returns { url, resourceType, originalName }.
+// Location and contact shares never hit this endpoint — they
+// are plain JSON sent directly over the socket.
+// ============================================================
+app.post('/api/upload', auth, multerMemory.single('file'), async (req, res) => {
+    if (!req.file) return res.status(400).json({ message: 'No file provided' });
+
+    const resType = resourceTypeFor(req.file.mimetype);
+
+    try {
+        // Wrap the stream-based Cloudinary uploader in a Promise
+        const result = await new Promise((resolve, reject) => {
+            const uploadStream = cloudinary.uploader.upload_stream(
+                {
+                    resource_type: resType,
+                    folder: 'chatapp',
+                    // Keep original filename (sanitised) so downloads are readable
+                    public_id: `${Date.now()}_${req.file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`,
+                    // Deliver as attachment so browsers download docs instead of trying to render
+                    ...(resType === 'raw' && { type: 'upload', flags: 'attachment' }),
+                },
+                (err, result) => (err ? reject(err) : resolve(result)),
+            );
+            uploadStream.end(req.file.buffer);
+        });
+
+        res.json({
+            url: result.secure_url,
+            resourceType: resType,
+            originalName: req.file.originalname,
+            mimeType: req.file.mimetype,
+            publicId: result.public_id,
+        });
+    } catch (err) {
+        console.error('[cloudinary] upload failed:', err?.message || err);
+        const msg = err?.message?.includes('Invalid') || err?.message?.includes('credentials')
+            ? 'Invalid Cloudinary credentials. Check CLOUDINARY_CLOUD_NAME, API_KEY, and API_SECRET in server/.env'
+            : err?.message || 'Upload failed';
+        res.status(500).json({ message: msg });
+    }
+});
 
 mongoose
   .connect(process.env.MONGO_URI)
@@ -60,12 +157,18 @@ const onlineUsers = new Map();
 // key `${callerId}:${receiverId}` -> { startTime, callType, answered, answeredAt, declined }
 const pendingCalls = new Map();
 
-// key: callId -> { hostId, groupId, callType, participants: Map<userId, username>, invited: Set<userId> }
+// key: callId -> {
+//   hostId, hostUsername, groupId, callType,
+//   participants: Map<userId, username>, invited: Set<userId>, declinedIds: Set<userId>,
+//   joinTimes: Map<userId, timestampMs>, startTime: timestampMs,
+// }
 const activeGroupCalls = new Map();
 const MAX_GROUP_CALL_PARTICIPANTS = 4;
 
 const MESSAGE_TYPES = ['audio', 'image', 'file', 'location', 'contact'];
-const MAX_ATTACHMENT_BYTES = 6 * 1024 * 1024; // rough cap for base64 payloads (see note below)
+// fileData/audioData are now Cloudinary URLs — size check is effectively a no-op
+// but kept as a guard against someone sending raw base64 directly.
+const MAX_ATTACHMENT_BYTES = 6 * 1024 * 1024;
 
 const broadcastPresence = async (userId, online) => {
     try {
@@ -128,6 +231,80 @@ const finalizeCall = async (callerId, receiverId, entry, { declinedByReceiver = 
     }
 };
 
+// Saves a GroupCallHistory row covering every invited person (answered/missed/declined),
+// then drops a visible "call" log — into the group chat for group-scoped calls, or into each
+// 1:1 conversation with the host for ad-hoc calls. Called once, right when a call actually ends
+// (last participant leaves, or the whole thing disconnects), never per-participant-leave.
+const finalizeGroupCall = async (callId, call) => {
+    try {
+        const now = Date.now();
+        const participantEntries = [];
+        for (const [uid, username] of call.participants.entries()) {
+            const joinedAt = call.joinTimes.get(uid) || call.startTime;
+            participantEntries.push({ userId: uid, username, status: 'answered', duration: Math.max(0, Math.round((now - joinedAt) / 1000)) });
+        }
+        for (const uid of call.invited) {
+            const invitedUser = await User.findById(uid).select('username').lean();
+            participantEntries.push({
+                userId: uid,
+                username: invitedUser?.username || 'Unknown',
+                status: call.declinedIds.has(uid) ? 'declined' : 'missed',
+                duration: 0,
+            });
+        }
+        if (!participantEntries.length) return;
+
+        await GroupCallHistory.create({
+            callId,
+            groupId: call.groupId,
+            hostId: call.hostId,
+            hostUsername: call.hostUsername,
+            callType: call.callType,
+            participants: participantEntries,
+            startTime: new Date(call.startTime),
+            endTime: new Date(now),
+        });
+
+        const anyoneElseAnswered = participantEntries.some((p) => p.status === 'answered' && p.userId !== call.hostId);
+        const summaryStatus = anyoneElseAnswered
+            ? 'answered'
+            : participantEntries.every((p) => p.status === 'missed') ? 'missed' : 'declined';
+        const timeStamp = new Date().toISOString();
+
+        if (call.groupId) {
+            const saved = await GroupMessage.create({
+                groupId: call.groupId,
+                senderId: call.hostId,
+                username: call.hostUsername,
+                msg: '',
+                timeStamp,
+                type: 'call',
+                callInfo: { callType: call.callType, status: summaryStatus, duration: 0 },
+            });
+            io.to(`group:${call.groupId}`).emit('group-msg', { ...saved.toObject(), id: saved._id.toString() });
+        } else {
+            for (const entry of participantEntries) {
+                if (entry.userId === call.hostId) continue;
+                const chatDoc = await Chat.create({
+                    senderId: call.hostId,
+                    recipientId: entry.userId,
+                    user: call.hostUsername,
+                    msg: '',
+                    timeStamp,
+                    type: 'call',
+                    callInfo: { callType: call.callType, status: entry.status, duration: entry.duration },
+                });
+                const payload = { ...chatDoc.toObject(), id: chatDoc._id.toString() };
+                io.to(call.hostId).to(entry.userId).emit('msg', payload);
+            }
+        }
+
+        [...call.participants.keys(), ...call.invited].forEach((uid) => io.to(uid).emit('call-history-updated'));
+    } catch (err) {
+        console.error('[group-call] finalize error:', err);
+    }
+};
+
 // One-way "does A block B" check against a lean user doc.
 const hasBlocked = (userDoc, otherUserId) => (userDoc?.blockedUsers || []).includes(otherUserId);
 
@@ -140,7 +317,14 @@ const previewFor = (message) => {
         case 'file': return `📄 ${message.fileName || 'Document'}`;
         case 'location': return '📍 Location';
         case 'contact': return '👤 Contact';
-        case 'call': return message.callInfo?.status === 'missed' ? '📞 Missed call' : '📞 Call';
+        case 'poll': return `📊 ${message.poll?.question || 'Poll'}`;
+        case 'call': {
+            const isAudio = message.callInfo?.callType === 'audio';
+            const type = isAudio ? 'voice' : 'video';
+            if (message.callInfo?.status === 'missed') return `📞 Missed ${type} call`;
+            if (message.callInfo?.status === 'declined') return `📞 Declined ${type} call`;
+            return `📞 ${type.charAt(0).toUpperCase() + type.slice(1)} call`;
+        }
         default: return message.msg || '';
     }
 };
@@ -289,9 +473,121 @@ io.on('connection', (socket)=>{
         }
     });
 
-    // ---- Message delete (direct + group) ----
-    socket.on('delete-message', async ({ messageId, isGroup, everyone }) => {
+    // ---- Poll: create (direct) ----
+    socket.on('send-poll', async ({ recipientId, question, options, allowMultiple }) => {
+        if (!recipientId || !question?.trim() || !Array.isArray(options) || options.length < 2) return;
         try {
+            const [sender, recipient] = await Promise.all([
+                User.findById(userId).select('friends blockedUsers username'),
+                User.findById(recipientId).select('blockedUsers'),
+            ]);
+            const isFriend = sender?.friends.some((f) => f.userId === recipientId);
+            if (!isFriend || hasBlocked(sender, recipientId) || hasBlocked(recipient, userId)) return;
+
+            const pollOptions = options.map((text, i) => ({ id: `opt_${i}_${Date.now()}`, text: text.trim(), votes: [] }));
+            const chatDoc = await Chat.create({
+                senderId: userId,
+                recipientId,
+                user: socket.user.name,
+                msg: '',
+                timeStamp: new Date().toISOString(),
+                type: 'poll',
+                poll: { question: question.trim(), options: pollOptions, allowMultiple: !!allowMultiple, closed: false },
+                delivered: onlineUsers.has(recipientId),
+            });
+            // Use lean-style plain object to avoid Mongoose ObjectId serialization issues
+            const lean = await Chat.findById(chatDoc._id).lean();
+            const payload = { ...lean, id: lean._id.toString() };
+            io.to(userId).to(recipientId).emit('msg', payload);
+        } catch (err) { console.error('Could not create poll:', err); }
+    });
+
+    // ---- Poll: create (group) ----
+    socket.on('send-group-poll', async ({ groupId, question, options, allowMultiple }) => {
+        if (!groupId || !question?.trim() || !Array.isArray(options) || options.length < 2) return;
+        try {
+            const group = await Group.findOne({ _id: groupId, 'members.userId': userId }).select('_id');
+            if (!group) return;
+            const pollOptions = options.map((text, i) => ({ id: `opt_${i}_${Date.now()}`, text: text.trim(), votes: [] }));
+            const saved = await GroupMessage.create({
+                groupId,
+                senderId: userId,
+                username: socket.user.username,
+                msg: '',
+                timeStamp: new Date().toISOString(),
+                type: 'poll',
+                poll: { question: question.trim(), options: pollOptions, allowMultiple: !!allowMultiple, closed: false },
+            });
+            // Use lean-style plain object to avoid Mongoose ObjectId serialization issues
+            const lean = await GroupMessage.findById(saved._id).lean();
+            const payload = { ...lean, id: lean._id.toString() };
+            io.to(`group:${groupId}`).emit('group-msg', payload);
+        } catch (err) { console.error('Could not create group poll:', err); }
+    });
+
+    // ---- Poll: vote (direct + group) ----
+    socket.on('poll-vote', async ({ messageId, optionId, isGroup }) => {
+        try {
+            const Model = isGroup ? GroupMessage : Chat;
+            const doc = await Model.findById(messageId);
+            if (!doc || doc.type !== 'poll' || doc.poll?.closed) return;
+
+            // Verify the voter is a participant
+            if (isGroup) {
+                const grp = await Group.findOne({ _id: doc.groupId, 'members.userId': userId }).select('_id');
+                if (!grp) return;
+            } else {
+                if (doc.senderId !== userId && doc.recipientId !== userId) return;
+            }
+
+            const option = doc.poll.options.find((o) => o.id === optionId);
+            if (!option) return;
+
+            if (!doc.poll.allowMultiple) {
+                // Remove user's vote from all options first (single-choice)
+                doc.poll.options.forEach((o) => { o.votes = o.votes.filter((v) => v !== userId); });
+            }
+
+            // Toggle: if already voted for this option, remove the vote
+            const alreadyVoted = option.votes.includes(userId);
+            if (alreadyVoted) {
+                option.votes = option.votes.filter((v) => v !== userId);
+            } else {
+                option.votes.push(userId);
+            }
+
+            doc.markModified('poll');
+            await doc.save();
+
+            const payload = { messageId, poll: doc.poll };
+            if (isGroup) {
+                io.to(`group:${doc.groupId}`).emit('poll-updated', payload);
+            } else {
+                io.to(doc.senderId).to(doc.recipientId).emit('poll-updated', payload);
+            }
+        } catch (err) { console.error('Could not record vote:', err); }
+    });
+
+    // ---- Poll: close (only sender can close) ----
+    socket.on('poll-close', async ({ messageId, isGroup }) => {
+        try {
+            const Model = isGroup ? GroupMessage : Chat;
+            const doc = await Model.findById(messageId);
+            if (!doc || doc.type !== 'poll' || doc.senderId !== userId) return;
+            doc.poll.closed = true;
+            doc.markModified('poll');
+            await doc.save();
+            const payload = { messageId, poll: doc.poll };
+            if (isGroup) {
+                io.to(`group:${doc.groupId}`).emit('poll-updated', payload);
+            } else {
+                io.to(doc.senderId).to(doc.recipientId).emit('poll-updated', payload);
+            }
+        } catch (err) { console.error('Could not close poll:', err); }
+    });
+
+    // ---- Message delete (direct + group) ----
+    socket.on('delete-message', async ({ messageId, isGroup, everyone }) => {        try {
             const Model = isGroup ? GroupMessage : Chat;
             const doc = await Model.findById(messageId);
             if (!doc) return;
@@ -322,7 +618,7 @@ io.on('connection', (socket)=>{
         }
     });
 
-    // ---- WebRTC signaling handlers ----
+    // ---- WebRTC signaling handlers (1:1 calls) ----
     socket.on('call-user', async ({ targetUserId, offer, callType }) => {
         try {
             console.log(`[webrtc] call-user from ${userId} -> ${targetUserId}`);
@@ -373,6 +669,31 @@ io.on('connection', (socket)=>{
         }
     });
 
+    // ---- Reconnect-on-drop for 1:1 calls: plain SDP relay, no pendingCalls bookkeeping ----
+    // (the initial call-user/call-answer pair already logged this call; a renegotiation
+    // mid-call is just keeping the same call's media path alive, not a new call.)
+    socket.on('renegotiate-offer', async ({ targetUserId, offer }) => {
+        try {
+            const sender = await User.findById(userId).select('friends');
+            if (targetUserId && offer && sender?.friends.some((friend) => friend.userId === targetUserId)) {
+                io.to(targetUserId).emit('renegotiate-offer', { fromUserId: userId, offer });
+            }
+        } catch (err) {
+            console.error('[webrtc] renegotiate-offer error:', err);
+        }
+    });
+
+    socket.on('renegotiate-answer', async ({ targetUserId, answer }) => {
+        try {
+            const sender = await User.findById(userId).select('friends');
+            if (targetUserId && answer && sender?.friends.some((friend) => friend.userId === targetUserId)) {
+                io.to(targetUserId).emit('renegotiate-answer', { fromUserId: userId, answer });
+            }
+        } catch (err) {
+            console.error('[webrtc] renegotiate-answer error:', err);
+        }
+    });
+
     // Callee explicitly hits "Decline" on an unanswered incoming call
     socket.on('call-decline', ({ callerId }) => {
         const entry = pendingCalls.get(`${callerId}:${userId}`);
@@ -419,7 +740,10 @@ io.on('connection', (socket)=>{
                     if (call.participants.has(userId)) {
                         call.participants.delete(userId);
                         io.to(`call:${callId}`).emit('group-call-participant-left', { callId, userId });
-                        if (call.participants.size === 0) activeGroupCalls.delete(callId);
+                        if (call.participants.size === 0) {
+                            finalizeGroupCall(callId, call);
+                            activeGroupCalls.delete(callId);
+                        }
                     } else if (call.invited.has(userId)) {
                         call.invited.delete(userId);
                     }
@@ -457,12 +781,17 @@ io.on('connection', (socket)=>{
                 if (!uniqueTargets.every((id) => friendIds.has(id) && !blockedSet.has(id) && !blockedMeBack.has(id))) return;
             }
 
+            const now = Date.now();
             activeGroupCalls.set(callId, {
                 hostId: userId,
+                hostUsername: me.username,
                 groupId: groupId || null,
                 callType: callType === 'audio' ? 'audio' : 'video',
                 participants: new Map([[userId, me.username]]),
                 invited: new Set(uniqueTargets),
+                declinedIds: new Set(),
+                joinTimes: new Map([[userId, now]]),
+                startTime: now,
             });
             socket.join(`call:${callId}`);
 
@@ -480,6 +809,53 @@ io.on('connection', (socket)=>{
         }
     });
 
+    // Invite additional people into a call that's already in progress. Reuses the exact same
+    // join flow as the initial invite (group-call-join / group-call-state / participant-joined
+    // already support a participant arriving after others are already connected).
+    socket.on('group-call-invite-more', async ({ callId, targetUserIds }) => {
+        try {
+            const call = activeGroupCalls.get(callId);
+            if (!call || !call.participants.has(userId) || !Array.isArray(targetUserIds)) return;
+
+            const uniqueTargets = [...new Set(targetUserIds.filter((id) => id && id !== userId && !call.participants.has(id) && !call.invited.has(id)))];
+            if (!uniqueTargets.length) return;
+            if (call.participants.size + call.invited.size + uniqueTargets.length > MAX_GROUP_CALL_PARTICIPANTS) {
+                socket.emit('group-call-error', { message: `Group calls are limited to ${MAX_GROUP_CALL_PARTICIPANTS} participants.` });
+                return;
+            }
+
+            const me = await User.findById(userId).select('username friends blockedUsers');
+            if (!me) return;
+
+            if (call.groupId) {
+                const group = await Group.findOne({ _id: call.groupId, 'members.userId': userId }).select('members').lean();
+                if (!group) return;
+                const memberIds = new Set(group.members.map((m) => m.userId));
+                if (!uniqueTargets.every((id) => memberIds.has(id))) return;
+            } else {
+                const friendIds = new Set((me.friends || []).map((f) => f.userId));
+                const blockedSet = new Set(me.blockedUsers || []);
+                const others = await User.find({ _id: { $in: uniqueTargets } }).select('blockedUsers').lean();
+                const blockedMeBack = new Set(others.filter((u) => (u.blockedUsers || []).includes(userId)).map((u) => u._id.toString()));
+                if (!uniqueTargets.every((id) => friendIds.has(id) && !blockedSet.has(id) && !blockedMeBack.has(id))) return;
+            }
+
+            uniqueTargets.forEach((id) => call.invited.add(id));
+            const participantIds = [...call.participants.keys(), ...call.invited];
+            uniqueTargets.forEach((targetId) => {
+                io.to(targetId).emit('group-call-invite', {
+                    callId,
+                    from: { id: userId, username: me.username },
+                    participantIds,
+                    groupId: call.groupId,
+                    callType: call.callType,
+                });
+            });
+        } catch (err) {
+            console.error('[group-call] invite-more error:', err);
+        }
+    });
+
     socket.on('group-call-join', ({ callId }) => {
         const call = activeGroupCalls.get(callId);
         if (!call || (!call.invited.has(userId) && !call.participants.has(userId))) return;
@@ -489,7 +865,9 @@ io.on('connection', (socket)=>{
         }
 
         call.invited.delete(userId);
+        call.declinedIds.delete(userId);
         call.participants.set(userId, socket.user.username);
+        call.joinTimes.set(userId, Date.now());
         socket.join(`call:${callId}`);
 
         const existing = [...call.participants.entries()]
@@ -501,6 +879,8 @@ io.on('connection', (socket)=>{
     });
 
     // Generic SDP offer/answer/ICE-candidate relay between two participants of the same call.
+    // This also carries ICE-restart renegotiation offers for the reconnect-on-drop path, since
+    // an "offer" arriving on an already-open mesh peer connection is handled identically either way.
     socket.on('group-call-signal', ({ callId, targetUserId, data }) => {
         const call = activeGroupCalls.get(callId);
         if (!call || !call.participants.has(userId) || !call.participants.has(targetUserId)) return;
@@ -511,6 +891,7 @@ io.on('connection', (socket)=>{
         const call = activeGroupCalls.get(callId);
         if (!call) return;
         call.invited.delete(userId);
+        call.declinedIds.add(userId);
         io.to(call.hostId).emit('group-call-declined', { callId, userId });
     });
 
@@ -521,7 +902,10 @@ io.on('connection', (socket)=>{
         call.invited.delete(userId);
         socket.leave(`call:${callId}`);
         io.to(`call:${callId}`).emit('group-call-participant-left', { callId, userId });
-        if (call.participants.size === 0) activeGroupCalls.delete(callId);
+        if (call.participants.size === 0) {
+            finalizeGroupCall(callId, call);
+            activeGroupCalls.delete(callId);
+        }
     });
 });
 
@@ -529,13 +913,15 @@ app.get('/api/friends', auth, async (req, res) => {
     try {
         const me = await User.findById(req.user.userId).select('friends blockedUsers').lean();
         const friendIds = (me?.friends || []).map((friend) => friend.userId);
-        const friendUsers = await User.find({ _id: { $in: friendIds } }).select('lastSeen').lean();
-        const lastSeenById = new Map(friendUsers.map((entry) => [entry._id.toString(), entry.lastSeen]));
+        const friendUsers = await User.find({ _id: { $in: friendIds } }).select('lastSeen name email').lean();
+        const friendDataById = new Map(friendUsers.map((u) => [u._id.toString(), u]));
         const blockedSet = new Set(me?.blockedUsers || []);
         res.json((me?.friends || []).map((friend) => ({
             id: friend.userId,
+            name: friend.name || friendDataById.get(friend.userId)?.name || friend.username,
             username: friend.username,
-            lastSeen: lastSeenById.get(friend.userId) || null,
+            email: friendDataById.get(friend.userId)?.email || '',
+            lastSeen: friendDataById.get(friend.userId)?.lastSeen || null,
             blockedByMe: blockedSet.has(friend.userId),
         })));
     } catch (err) {
@@ -545,20 +931,30 @@ app.get('/api/friends', auth, async (req, res) => {
 });
 
 app.post('/api/friends', auth, async (req, res) => {
-    const username = req.body.username?.trim().replace(/^@/, '').toLowerCase();
-    if (!username) return res.status(400).json({ message: 'Username is required' });
+    const query = req.body.query?.trim() || req.body.username?.trim().replace(/^@/, '').toLowerCase();
+    if (!query) return res.status(400).json({ message: 'Name or email is required' });
 
     try {
         const user = await User.findById(req.user.userId);
-        const friend = await User.findOne({ username });
-        if (!friend) return res.status(404).json({ message: 'No user found with that username' });
+        // Search by email (exact, case-insensitive) OR name (partial, case-insensitive)
+        const friend = await User.findOne({
+            $and: [
+                { _id: { $ne: user._id } },
+                { $or: [
+                    { email: { $regex: `^${query}$`, $options: 'i' } },
+                    { name: { $regex: query, $options: 'i' } },
+                    { username: { $regex: `^${query}$`, $options: 'i' } }, // keep as fallback
+                ]},
+            ],
+        });
+        if (!friend) return res.status(404).json({ message: 'No user found with that name or email' });
         if (friend._id.toString() === user._id.toString()) return res.status(400).json({ message: 'You cannot add yourself' });
         if (user.friends.some((item) => item.userId === friend._id.toString())) return res.status(409).json({ message: 'This user is already your friend' });
 
-        user.friends.push({ userId: friend._id.toString(), username: friend.username });
-        friend.friends.push({ userId: user._id.toString(), username: user.username });
+        user.friends.push({ userId: friend._id.toString(), username: friend.username, name: friend.name });
+        friend.friends.push({ userId: user._id.toString(), username: user.username, name: user.name });
         await Promise.all([user.save(), friend.save()]);
-        return res.status(201).json({ friend: { id: friend._id.toString(), username: friend.username, lastSeen: friend.lastSeen, blockedByMe: false } });
+        return res.status(201).json({ friend: { id: friend._id.toString(), name: friend.name, username: friend.username, email: friend.email, lastSeen: friend.lastSeen, blockedByMe: false } });
     } catch (err) {
         console.error('Could not add friend:', err);
         return res.status(500).json({ message: 'Could not add friend' });
@@ -736,6 +1132,10 @@ app.get('/api/groups/:groupId/messages', auth, async (req, res) => {
             type: message.type || 'text', audioData: message.audioData,
             fileData: message.fileData, fileName: message.fileName, fileMime: message.fileMime,
             location: message.location, contactShare: message.contactShare,
+            callInfo: message.callInfo,
+            poll: message.poll || null,
+            editedAt: message.editedAt || null,
+            reactions: message.reactions || [],
             deletedForEveryone: message.deletedForEveryone || false,
         })));
     } catch (err) {
@@ -779,13 +1179,13 @@ app.get('/api/conversations', auth, async (req, res) => {
             if (friendIds.has(contactId) && !latestByContact.has(contactId)) latestByContact.set(contactId, message);
         });
 
-        const contacts = await User.find({ _id: { $in: [...latestByContact.keys()] } }).select('username').lean();
+        const contacts = await User.find({ _id: { $in: [...latestByContact.keys()] } }).select('username name email').lean();
         const contactsById = new Map(contacts.map((contact) => [contact._id.toString(), contact]));
         const conversations = [...latestByContact.entries()]
             .map(([contactId, message]) => {
                 const contact = contactsById.get(contactId);
                 if (!contact) return null;
-                return { id: contactId, username: contact.username, lastMessage: previewFor(message), timeStamp: message.timeStamp };
+                return { id: contactId, name: contact.name, username: contact.username, email: contact.email, lastMessage: previewFor(message), timeStamp: message.timeStamp };
             })
             .filter(Boolean);
         res.json(conversations);
@@ -824,6 +1224,9 @@ app.get('/api/messages/:contactId', auth, async (req, res) => {
             location: message.location,
             contactShare: message.contactShare,
             callInfo: message.callInfo,
+            poll: message.poll || null,
+            editedAt: message.editedAt || null,
+            reactions: message.reactions || [],
             delivered: message.delivered || false,
             read: message.read || false,
             deletedForEveryone: message.deletedForEveryone || false,
@@ -890,16 +1293,20 @@ app.post('/api/groups/:groupId/messages/clear', auth, async (req, res) => {
     }
 });
 
-// ---- Call history ----
+// ---- Call history (1:1 + group, merged and sorted) ----
 app.get('/api/calls', auth, async (req, res) => {
     try {
         const userId = req.user.userId;
-        const calls = await CallHistory.find({ $or: [{ callerId: userId }, { receiverId: userId }] })
-            .sort({ startTime: -1 })
-            .limit(100)
-            .lean();
-        res.json(calls.map((call) => ({
+
+        const directCalls = await CallHistory.find({ $or: [{ callerId: userId }, { receiverId: userId }] })
+            .sort({ startTime: -1 }).limit(100).lean();
+
+        const groupCalls = await GroupCallHistory.find({ 'participants.userId': userId })
+            .sort({ startTime: -1 }).limit(100).lean();
+
+        const directRows = directCalls.map((call) => ({
             id: call._id.toString(),
+            kind: 'direct',
             direction: call.callerId === userId ? 'outgoing' : 'incoming',
             contactId: call.callerId === userId ? call.receiverId : call.callerId,
             contactUsername: call.callerId === userId ? call.receiverUsername : call.callerUsername,
@@ -907,10 +1314,482 @@ app.get('/api/calls', auth, async (req, res) => {
             status: call.status,
             startTime: call.startTime,
             duration: call.duration,
-        })));
+        }));
+
+        const groupRows = groupCalls.map((call) => {
+            const mine = call.participants.find((p) => p.userId === userId);
+            return {
+                id: call._id.toString(),
+                kind: 'group',
+                direction: call.hostId === userId ? 'outgoing' : 'incoming',
+                groupId: call.groupId,
+                hostUsername: call.hostUsername,
+                otherParticipants: call.participants.filter((p) => p.userId !== userId).map((p) => p.username),
+                callType: call.callType,
+                status: mine?.status || 'missed',
+                startTime: call.startTime,
+                duration: mine?.duration || 0,
+            };
+        });
+
+        const merged = [...directRows, ...groupRows].sort((a, b) => new Date(b.startTime) - new Date(a.startTime)).slice(0, 100);
+        res.json(merged);
     } catch (err) {
         console.error('Could not load call history:', err);
         res.status(500).json({ message: 'Could not load call history' });
+    }
+});
+
+// DELETE /api/calls — clear all call history for the current user
+app.delete('/api/calls', auth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        await Promise.all([
+            CallHistory.deleteMany({ $or: [{ callerId: userId }, { receiverId: userId }] }),
+            GroupCallHistory.deleteMany({ 'participants.userId': userId }),
+        ]);
+        res.json({ message: 'Call history cleared' });
+    } catch (err) {
+        console.error('Could not clear call history:', err);
+        res.status(500).json({ message: 'Could not clear call history' });
+    }
+});
+
+// ============================================================
+// PROFILE ROUTES
+// ============================================================
+
+// GET own profile
+app.get('/api/profile', auth, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.userId).select('-password').lean();
+        if (!user) return res.status(404).json({ message: 'User not found' });
+        res.json({ id: user._id.toString(), name: user.name, username: user.username, email: user.email, phone: user.phone || '', bio: user.bio || '', avatar: user.avatar || '' });
+    } catch (err) {
+        res.status(500).json({ message: 'Could not load profile' });
+    }
+});
+
+// PATCH own profile (name, bio, phone, avatar)
+app.patch('/api/profile', auth, async (req, res) => {
+    try {
+        const { name, bio, phone, avatar } = req.body;
+        const user = await User.findById(req.user.userId);
+        if (!user) return res.status(404).json({ message: 'User not found' });
+
+        if (typeof name === 'string' && name.trim()) user.name = name.trim().slice(0, 60);
+        if (typeof bio === 'string') user.bio = bio.trim().slice(0, 500);
+        if (typeof phone === 'string') user.phone = phone.trim().slice(0, 20);
+        if (typeof avatar === 'string') {
+            // Accept base64 data URLs; enforce a ~2MB cap on the base64 string
+            if (avatar.length > 2_800_000) return res.status(400).json({ message: 'Avatar image is too large (max ~2 MB)' });
+            user.avatar = avatar;
+        }
+        await user.save();
+        res.json({ id: user._id.toString(), name: user.name, username: user.username, email: user.email, phone: user.phone, bio: user.bio, avatar: user.avatar });
+    } catch (err) {
+        console.error('Could not update profile:', err);
+        res.status(500).json({ message: 'Could not update profile' });
+    }
+});
+
+// Toggle a reaction on a direct message
+app.post('/api/messages/:id/react', auth, async (req, res) => {
+  try {
+    const { emoji } = req.body;
+    if (!emoji) return res.status(400).json({ message: 'emoji is required' });
+    const msg = await Chat.findById(req.params.id);
+    if (!msg) return res.status(404).json({ message: 'Message not found' });
+    const isParticipant = msg.senderId === req.user.userId || msg.recipientId === req.user.userId;
+    if (!isParticipant) return res.status(403).json({ message: 'Not your conversation' });
+
+    const existing = msg.reactions.find((r) => r.userId === req.user.userId);
+    if (existing) {
+      if (existing.emoji === emoji) {
+        msg.reactions = msg.reactions.filter((r) => r.userId !== req.user.userId);
+      } else {
+        existing.emoji = emoji;
+      }
+    } else {
+      msg.reactions.push({ userId: req.user.userId, emoji });
+    }
+    await msg.save();
+    io.to(msg.senderId).to(msg.recipientId).emit('message-reaction', { messageId: msg._id.toString(), reactions: msg.reactions, isGroup: false });
+    res.json({ reactions: msg.reactions });
+  } catch (err) {
+    res.status(500).json({ message: 'Could not update reaction' });
+  }
+});
+
+// Toggle a reaction on a group message
+app.post('/api/groups/:groupId/messages/:id/react', auth, async (req, res) => {
+  try {
+    const { emoji } = req.body;
+    if (!emoji) return res.status(400).json({ message: 'emoji is required' });
+    const group = await Group.findOne({ _id: req.params.groupId, 'members.userId': req.user.userId }).select('_id');
+    if (!group) return res.status(403).json({ message: 'Not a member' });
+    const msg = await GroupMessage.findOne({ _id: req.params.id, groupId: req.params.groupId });
+    if (!msg) return res.status(404).json({ message: 'Message not found' });
+
+    const existing = msg.reactions.find((r) => r.userId === req.user.userId);
+    if (existing) {
+      if (existing.emoji === emoji) {
+        msg.reactions = msg.reactions.filter((r) => r.userId !== req.user.userId);
+      } else {
+        existing.emoji = emoji;
+      }
+    } else {
+      msg.reactions.push({ userId: req.user.userId, emoji });
+    }
+    await msg.save();
+    io.to(`group:${req.params.groupId}`).emit('message-reaction', { messageId: msg._id.toString(), reactions: msg.reactions, isGroup: true });
+    res.json({ reactions: msg.reactions });
+  } catch (err) {
+    res.status(500).json({ message: 'Could not update reaction' });
+  }
+});
+
+// ============================================================
+// MESSAGE STAR/UNSTAR ROUTES
+// ============================================================
+
+// Star/Unstar a direct message
+app.post('/api/messages/:id/star', auth, async (req, res) => {
+  try {
+    const { star } = req.body;
+    const msg = await Chat.findById(req.params.id);
+    if (!msg) return res.status(404).json({ message: 'Message not found' });
+    const isParticipant = msg.senderId === req.user.userId || msg.recipientId === req.user.userId;
+    if (!isParticipant) return res.status(403).json({ message: 'Not your conversation' });
+
+    if (star) {
+      if (!msg.starredBy.includes(req.user.userId)) msg.starredBy.push(req.user.userId);
+    } else {
+      msg.starredBy = msg.starredBy.filter((id) => id !== req.user.userId);
+    }
+    await msg.save();
+    io.to(msg.senderId).to(msg.recipientId).emit('message-starred', { messageId: msg._id.toString(), starredBy: msg.starredBy });
+    res.json({ success: true, starredBy: msg.starredBy });
+  } catch (err) {
+    res.status(500).json({ message: 'Could not star message' });
+  }
+});
+
+// Star/Unstar a group message
+app.post('/api/groups/:groupId/messages/:id/star', auth, async (req, res) => {
+  try {
+    const { star } = req.body;
+    const group = await Group.findOne({ _id: req.params.groupId, 'members.userId': req.user.userId }).select('_id');
+    if (!group) return res.status(403).json({ message: 'Not a member' });
+    const msg = await GroupMessage.findOne({ _id: req.params.id, groupId: req.params.groupId });
+    if (!msg) return res.status(404).json({ message: 'Message not found' });
+
+    if (star) {
+      if (!msg.starredBy.includes(req.user.userId)) msg.starredBy.push(req.user.userId);
+    } else {
+      msg.starredBy = msg.starredBy.filter((id) => id !== req.user.userId);
+    }
+    await msg.save();
+    io.to(`group:${req.params.groupId}`).emit('message-starred', { messageId: msg._id.toString(), starredBy: msg.starredBy });
+    res.json({ success: true, starredBy: msg.starredBy });
+  } catch (err) {
+    res.status(500).json({ message: 'Could not star message' });
+  }
+});
+
+// ============================================================
+// MESSAGE EDIT ROUTES
+// ============================================================
+const EDIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+
+// Edit a direct message
+app.patch('/api/messages/:id', auth, async (req, res) => {
+    try {
+        const { newText } = req.body;
+        if (typeof newText !== 'string' || !newText.trim()) return res.status(400).json({ message: 'newText is required' });
+        const msg = await Chat.findById(req.params.id);
+        if (!msg) return res.status(404).json({ message: 'Message not found' });
+        if (msg.senderId !== req.user.userId) return res.status(403).json({ message: 'Only the sender can edit' });
+        if (msg.type !== 'text') return res.status(400).json({ message: 'Only text messages can be edited' });
+        if (Date.now() - new Date(msg.timeStamp).getTime() > EDIT_WINDOW_MS) return res.status(400).json({ message: 'Edit window expired (15 min)' });
+        msg.msg = newText.trim().slice(0, 4000);
+        msg.editedAt = new Date();
+        await msg.save();
+        io.to(msg.senderId).to(msg.recipientId).emit('message-edited', { messageId: msg._id.toString(), newText: msg.msg, editedAt: msg.editedAt, isGroup: false });
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ message: 'Could not edit message' });
+    }
+});
+
+// Edit a group message
+app.patch('/api/groups/:groupId/messages/:id', auth, async (req, res) => {
+    try {
+        const { newText } = req.body;
+        if (typeof newText !== 'string' || !newText.trim()) return res.status(400).json({ message: 'newText is required' });
+        const group = await Group.findOne({ _id: req.params.groupId, 'members.userId': req.user.userId }).select('_id');
+        if (!group) return res.status(403).json({ message: 'Not a member' });
+        const msg = await GroupMessage.findOne({ _id: req.params.id, groupId: req.params.groupId });
+        if (!msg) return res.status(404).json({ message: 'Message not found' });
+        if (msg.senderId !== req.user.userId) return res.status(403).json({ message: 'Only the sender can edit' });
+        if (msg.type !== 'text') return res.status(400).json({ message: 'Only text messages can be edited' });
+        if (Date.now() - new Date(msg.timeStamp).getTime() > EDIT_WINDOW_MS) return res.status(400).json({ message: 'Edit window expired (15 min)' });
+        msg.msg = newText.trim().slice(0, 4000);
+        msg.editedAt = new Date();
+        await msg.save();
+        io.to(`group:${req.params.groupId}`).emit('message-edited', { messageId: msg._id.toString(), newText: msg.msg, editedAt: msg.editedAt, isGroup: true });
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ message: 'Could not edit message' });
+    }
+});
+
+// ============================================================
+// MESSAGE PIN ROUTES
+// ============================================================
+
+// Pin/Unpin a direct message
+app.patch('/api/messages/:id/pin', auth, async (req, res) => {
+    try {
+        const { pin } = req.body; // true = pin, false = unpin
+        const msg = await Chat.findById(req.params.id);
+        if (!msg) return res.status(404).json({ message: 'Message not found' });
+        const isParticipant = msg.senderId === req.user.userId || msg.recipientId === req.user.userId;
+        if (!isParticipant) return res.status(403).json({ message: 'Not your conversation' });
+        msg.isPinned = !!pin;
+        msg.pinnedBy = pin ? req.user.userId : undefined;
+        msg.pinnedAt = pin ? new Date() : undefined;
+        await msg.save();
+        io.to(msg.senderId).to(msg.recipientId).emit('message-pinned', { messageId: msg._id.toString(), isPinned: msg.isPinned, isGroup: false });
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ message: 'Could not pin message' });
+    }
+});
+
+// Pin/Unpin a group message
+app.patch('/api/groups/:groupId/messages/:id/pin', auth, async (req, res) => {
+    try {
+        const { pin } = req.body;
+        const group = await Group.findOne({ _id: req.params.groupId, 'members.userId': req.user.userId }).select('_id');
+        if (!group) return res.status(403).json({ message: 'Not a member' });
+        const msg = await GroupMessage.findOne({ _id: req.params.id, groupId: req.params.groupId });
+        if (!msg) return res.status(404).json({ message: 'Message not found' });
+        msg.isPinned = !!pin;
+        msg.pinnedBy = pin ? req.user.userId : undefined;
+        msg.pinnedAt = pin ? new Date() : undefined;
+        await msg.save();
+        io.to(`group:${req.params.groupId}`).emit('message-pinned', { messageId: msg._id.toString(), isPinned: msg.isPinned, isGroup: true });
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ message: 'Could not pin message' });
+    }
+});
+
+// ============================================================
+// PINNED CHATS (sidebar)
+// ============================================================
+
+app.post('/api/pinned-chats', auth, async (req, res) => {
+    try {
+        const { key } = req.body; // "direct:<userId>" or "group:<groupId>"
+        if (!key) return res.status(400).json({ message: 'key is required' });
+        const user = await User.findById(req.user.userId);
+        if (!user) return res.status(404).json({ message: 'User not found' });
+        if (!user.pinnedChats.includes(key)) {
+            if (user.pinnedChats.length >= 3) return res.status(400).json({ message: 'You can only pin up to 3 chats' });
+            user.pinnedChats.push(key);
+            await user.save();
+        }
+        res.json({ pinnedChats: user.pinnedChats });
+    } catch (err) {
+        res.status(500).json({ message: 'Could not pin chat' });
+    }
+});
+
+app.delete('/api/pinned-chats', auth, async (req, res) => {
+    try {
+        const { key } = req.body;
+        if (!key) return res.status(400).json({ message: 'key is required' });
+        const user = await User.findById(req.user.userId);
+        if (!user) return res.status(404).json({ message: 'User not found' });
+        user.pinnedChats = user.pinnedChats.filter((k) => k !== key);
+        await user.save();
+        res.json({ pinnedChats: user.pinnedChats });
+    } catch (err) {
+        res.status(500).json({ message: 'Could not unpin chat' });
+    }
+});
+
+app.get('/api/pinned-chats', auth, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.userId).select('pinnedChats').lean();
+        res.json({ pinnedChats: user?.pinnedChats || [] });
+    } catch (err) {
+        res.status(500).json({ message: 'Could not load pinned chats' });
+    }
+});
+
+// ============================================================
+// STARRED MESSAGES
+// ============================================================
+
+app.get('/api/starred', auth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const [directStarred, groupStarred] = await Promise.all([
+            Chat.find({ starredBy: userId, deletedForEveryone: false, deletedFor: { $ne: userId } }).sort({ timeStamp: -1 }).limit(200).lean(),
+            GroupMessage.find({ starredBy: userId, deletedForEveryone: false, deletedFor: { $ne: userId } }).sort({ timeStamp: -1 }).limit(200).lean(),
+        ]);
+        const direct = directStarred.map((m) => ({ ...m, id: m._id.toString(), isGroup: false }));
+        const group = groupStarred.map((m) => ({ ...m, id: m._id.toString(), isGroup: true }));
+        const merged = [...direct, ...group].sort((a, b) => new Date(b.timeStamp) - new Date(a.timeStamp));
+        res.json(merged);
+    } catch (err) {
+        res.status(500).json({ message: 'Could not load starred messages' });
+    }
+});
+
+// ============================================================
+// GLOBAL SEARCH
+// ============================================================
+
+app.get('/api/search', auth, async (req, res) => {
+    try {
+        const { q } = req.query;
+        if (!q || q.trim().length < 2) return res.json({ users: [], groups: [], messages: [] });
+        const query = q.trim();
+        const userId = req.user.userId;
+
+        const me = await User.findById(userId).select('friends').lean();
+        const friendIds = (me?.friends || []).map((f) => f.userId);
+
+        const [users, groups, messages] = await Promise.all([
+            // search among friends only
+            User.find({
+                _id: { $in: friendIds },
+                $or: [
+                    { name: { $regex: query, $options: 'i' } },
+                    { email: { $regex: query, $options: 'i' } },
+                    { username: { $regex: query, $options: 'i' } },
+                ],
+            }).select('username name email avatar').limit(10).lean(),
+
+            // search groups the user belongs to
+            Group.find({
+                'members.userId': userId,
+                name: { $regex: query, $options: 'i' },
+            }).select('name description').limit(10).lean(),
+
+            // search messages involving this user
+            Chat.find({
+                $or: [{ senderId: userId }, { recipientId: userId }],
+                type: 'text',
+                msg: { $regex: query, $options: 'i' },
+                deletedForEveryone: false,
+                deletedFor: { $ne: userId },
+            }).sort({ timeStamp: -1 }).limit(20).lean(),
+        ]);
+
+        res.json({
+            users: users.map((u) => ({ id: u._id.toString(), username: u.username, name: u.name, email: u.email || '', avatar: u.avatar || '' })),
+            groups: groups.map((g) => ({ id: g._id.toString(), name: g.name, description: g.description || '' })),
+            messages: messages.map((m) => ({ id: m._id.toString(), senderId: m.senderId, recipientId: m.recipientId, msg: m.msg, timeStamp: m.timeStamp })),
+        });
+    } catch (err) {
+        res.status(500).json({ message: 'Search failed' });
+    }
+});
+
+// ============================================================
+// STATUS ROUTES
+// ============================================================
+
+// GET all statuses of friends (+ own) posted in last 24h
+app.get('/api/status', auth, async (req, res) => {
+    try {
+        const me = await User.findById(req.user.userId).select('friends name').lean();
+        const friendIds = (me?.friends || []).map((f) => f.userId);
+        const allIds = [req.user.userId, ...friendIds];
+
+        const statuses = await Status.find({ userId: { $in: allIds } })
+            .sort({ createdAt: -1 }).lean();
+
+        // Group by userId
+        const byUser = new Map();
+        statuses.forEach((s) => {
+            if (!byUser.has(s.userId)) byUser.set(s.userId, []);
+            byUser.get(s.userId).push({ ...s, id: s._id.toString() });
+        });
+
+        // Get user names
+        const users = await User.find({ _id: { $in: allIds } }).select('name username').lean();
+        const userMap = new Map(users.map((u) => [u._id.toString(), u]));
+
+        const result = [...byUser.entries()].map(([userId, items]) => {
+            const u = userMap.get(userId);
+            return {
+                userId,
+                name: u?.name || u?.username || 'Unknown',
+                isMe: userId === req.user.userId,
+                items: items.map((s) => ({
+                    id: s.id,
+                    text: s.text,
+                    emoji: s.emoji,
+                    bgColor: s.bgColor,
+                    createdAt: s.createdAt,
+                    viewed: (s.viewers || []).includes(req.user.userId),
+                    viewCount: (s.viewers || []).length,
+                })),
+            };
+        });
+
+        res.json(result);
+    } catch (err) {
+        console.error('Could not load statuses:', err);
+        res.status(500).json({ message: 'Could not load statuses' });
+    }
+});
+
+// POST create a new status
+app.post('/api/status', auth, async (req, res) => {
+    try {
+        const { text, emoji, bgColor } = req.body;
+        if (!text?.trim() && !emoji?.trim()) return res.status(400).json({ message: 'Status text or emoji required' });
+
+        const status = await Status.create({
+            userId: req.user.userId,
+            text: text?.trim() || '',
+            emoji: emoji?.trim() || '',
+            bgColor: bgColor || '#128C7E',
+        });
+        res.status(201).json({ id: status._id.toString(), text: status.text, emoji: status.emoji, bgColor: status.bgColor, createdAt: status.createdAt, viewed: false, viewCount: 0 });
+    } catch (err) {
+        console.error('Could not post status:', err);
+        res.status(500).json({ message: 'Could not post status' });
+    }
+});
+
+// DELETE own status item
+app.delete('/api/status/:id', auth, async (req, res) => {
+    try {
+        const status = await Status.findById(req.params.id);
+        if (!status) return res.status(404).json({ message: 'Status not found' });
+        if (status.userId !== req.user.userId) return res.status(403).json({ message: 'Not your status' });
+        await status.deleteOne();
+        res.json({ message: 'Status deleted' });
+    } catch (err) {
+        res.status(500).json({ message: 'Could not delete status' });
+    }
+});
+
+// POST mark a status as viewed
+app.post('/api/status/:id/view', auth, async (req, res) => {
+    try {
+        await Status.findByIdAndUpdate(req.params.id, { $addToSet: { viewers: req.user.userId } });
+        res.json({ ok: true });
+    } catch (err) {
+        res.status(500).json({ message: 'Could not mark viewed' });
     }
 });
 

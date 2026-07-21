@@ -1,5 +1,10 @@
 const mongoose = require('mongoose');
 
+const reactionSchema = new mongoose.Schema({
+  userId: { type: String, required: true },
+  emoji: { type: String, required: true },
+}, { _id: false });
+
 const chatSchema = new mongoose.Schema({
   senderId: { type: String, required: true, index: true },
   recipientId: { type: String, required: true, index: true },
@@ -7,44 +12,76 @@ const chatSchema = new mongoose.Schema({
   msg: { type: String, default: '' },
   timeStamp: { type: String, required: true },
 
-  // 'text' | 'call' (call-log entry) | 'audio' (voice message) | 'image' | 'file' | 'location' | 'contact'
-  type: { type: String, enum: ['text', 'call', 'audio', 'image', 'file', 'location', 'contact'], default: 'text' },
+  // 'text' | 'call' | 'audio' | 'image' | 'file' | 'location' | 'contact' | 'poll'
+  type: { type: String, enum: ['text', 'call', 'audio', 'image', 'file', 'location', 'contact', 'poll'], default: 'text' },
 
-  // populated only when type === 'call'
+  // call log
   callInfo: {
     callType: { type: String, enum: ['audio', 'video'] },
     status: { type: String, enum: ['missed', 'declined', 'answered'] },
     duration: { type: Number, default: 0 },
   },
 
-  // populated only when type === 'audio' (base64 data URL, e.g. "data:audio/webm;base64,...")
+  // poll
+  poll: {
+    question: { type: String },
+    options: [{
+      id: { type: String },
+      text: { type: String },
+      votes: { type: [String], default: [] }, // array of userIds
+    }],
+    allowMultiple: { type: Boolean, default: false },
+    closed: { type: Boolean, default: false },
+  },
+
+  // voice message
   audioData: { type: String },
 
-  // populated only when type === 'image' | 'file' (base64 data URL + metadata)
+  // image / file
   fileData: { type: String },
   fileName: { type: String },
   fileMime: { type: String },
+  fileSize: { type: Number },
 
-  // populated only when type === 'location'
+  // location
   location: {
     lat: { type: Number },
     lng: { type: Number },
   },
 
-  // populated only when type === 'contact' (a shared friend card)
+  // contact card
   contactShare: {
     id: { type: String },
     username: { type: String },
   },
 
-  // true when the recipient was online (their socket connected) at send time — powers the gray double-tick
+  // reply-to quote
+  replyTo: {
+    messageId: { type: String },
+    senderId: { type: String },
+    senderName: { type: String },
+    text: { type: String },    // preview text of the quoted message
+    type: { type: String },    // quoted message type (text/image/audio/etc.)
+  },
+
+  // message edit
+  editedAt: { type: Date },
+
+  // reactions: [{ userId, emoji }] — one emoji per user, replace if user reacts again
+  reactions: { type: [reactionSchema], default: [] },
+
+  // pinned in conversation
+  isPinned: { type: Boolean, default: false },
+  pinnedBy: { type: String },
+  pinnedAt: { type: Date },
+
   delivered: { type: Boolean, default: false },
-  // read receipt: true once the recipient has opened this conversation past this message
   read: { type: Boolean, default: false },
+  starredBy: { type: [String], default: [] },
 
   // delete-for-me: userIds who should no longer see this message
   deletedFor: { type: [String], default: [] },
-  // delete-for-everyone: message is tombstoned for both sides
+  // delete-for-everyone
   deletedForEveryone: { type: Boolean, default: false },
 });
 

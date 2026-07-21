@@ -4,6 +4,7 @@ import ChatApp from './pages/ChatApp'
 import Home from './pages/Home'
 import Login from './pages/Login'
 import Register from './pages/Register'
+import Settings from './pages/Settings'
 
 const ProtectedRoute = ({ children }) => (
   localStorage.getItem('chatToken') ? children : <Navigate to="/login" replace />
@@ -19,6 +20,7 @@ const App = () => {
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/chat" element={<ProtectedRoute><ChatApp /></ProtectedRoute>} />
+          <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>
