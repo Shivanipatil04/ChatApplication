@@ -1,8 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../config/api'
-// E2EE integration point
-import { ensureIdentityKeyPair, clearPeerKeyCache } from '../crypto/keyManager'
 import './Auth.css'
 
 const EyeIcon = () => (
@@ -34,16 +32,6 @@ const Register = () => {
     setLoading(true); setError('')
     try {
       await api.post('/api/auth/register', user)
-      // E2EE integration point — log in immediately to obtain a token so we
-      // can generate + upload the identity key pair before redirecting to /login.
-      try {
-        const { data } = await api.post('/api/auth/login', { email: user.email, password: user.password })
-        clearPeerKeyCache()
-        await ensureIdentityKeyPair(data.token)
-      } catch {
-        // Key generation failure must not block registration — keys will be
-        // created on the user's first login instead.
-      }
       navigate('/login')
     } catch (err) {
       setError(err.response?.data?.message || 'Unable to create account. Please try again.')

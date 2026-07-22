@@ -1,8 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../config/api'
-// E2EE integration point
-import { ensureIdentityKeyPair, clearPeerKeyCache } from '../crypto/keyManager'
 import './Auth.css'
 
 // Eye icon components — inline SVG, no extra dependency
@@ -41,9 +39,6 @@ const Login = () => {
       const { data } = await api.post('/api/auth/login', { email, password, rememberMe })
       localStorage.setItem('chatToken', data.token)
       localStorage.setItem('chatUser', JSON.stringify(data.user))
-      // E2EE integration point — generate/upload identity key pair on first login for this device
-      clearPeerKeyCache()
-      await ensureIdentityKeyPair(data.token)
       navigate('/chat')
     } catch (err) {
       setError(err.response?.data?.message || 'Unable to log in. Please try again.')
