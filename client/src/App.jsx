@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Navigate, Routes, Route, useLocation } from 'react-router-dom'
 import Navbar from './components/Navbar'
 import ChatApp from './pages/ChatApp'
 import Home from './pages/Home'
@@ -10,10 +10,14 @@ const ProtectedRoute = ({ children }) => (
   localStorage.getItem('chatToken') ? children : <Navigate to="/login" replace />
 )
 
-const App = () => {
+const AppContent = () => {
+  const location = useLocation();
+  // Hide navbar on /chat route for full-screen chat experience
+  const hideNavbar = location.pathname === '/chat';
+
   return (
-    <BrowserRouter>
-      <Navbar />
+    <>
+      {!hideNavbar && <Navbar />}
       <div>
         <Routes>
           <Route path="/" element={<Home />} />
@@ -24,6 +28,14 @@ const App = () => {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>
+    </>
+  );
+};
+
+const App = () => {
+  return (
+    <BrowserRouter>
+      <AppContent />
     </BrowserRouter>
   )
 }

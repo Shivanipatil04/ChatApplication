@@ -67,7 +67,8 @@
   color: #374151;
 }
 
-.auth-field input {
+.auth-field input,
+.auth-password-wrap input {
   padding: 12px 16px;
   border: 2px solid #e5e7eb;
   border-radius: 10px;
@@ -75,9 +76,11 @@
   font-family: 'Inter', sans-serif;
   transition: border-color 0.2s, box-shadow 0.2s;
   outline: none;
+  box-sizing: border-box;
 }
 
-.auth-field input:focus {
+.auth-field input:focus,
+.auth-password-wrap input:focus {
   border-color: #667eea;
   box-shadow: 0 0 0 3px rgba(102,126,234,0.15);
 }
@@ -164,3 +167,42 @@
   text-decoration: none;
 }
 .auth-link a:hover { text-decoration: underline; }
+
+/* ---- Show / hide password toggle ---- */
+.auth-password-wrap {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+}
+
+.auth-password-wrap input {
+  flex: 1;
+  width: 100%;
+  padding-right: 44px;
+  box-sizing: border-box;
+}
+
+.auth-eye-btn {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: #9ca3af;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: color 0.15s;
+  /* prevent the button from affecting the wrapper's height */
+  line-height: 0;
+  z-index: 1;
+}
+
+.auth-eye-btn:hover {
+  color: #667eea;
+}

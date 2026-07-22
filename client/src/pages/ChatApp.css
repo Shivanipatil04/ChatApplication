@@ -3902,6 +3902,7 @@
 .ww-dark .ww-call-settings-row strong { color: #f3f4f6; }
 .ww-dark .ww-call-settings-select { background: #374151; border-color: #4b5563; color: #f3f4f6; }
 
+
 /* ================================================================
    REJOIN BANNER
    ================================================================ */
@@ -4422,3 +4423,53 @@
 .ww-dark .ww-status-viewers-empty    { color: #8696a0; }
 .ww-dark .ww-status-viewer-row:hover { background: rgba(255,255,255,0.05); }
 .ww-dark .ww-status-viewer-info strong { color: #e9edef; }
+
+/* ============ Unread message badges ============ */
+
+/* Per-conversation green pill (like WhatsApp individual chat badge) */
+.ww-unread-badge {
+  display:          inline-flex;
+  align-items:      center;
+  justify-content:  center;
+  min-width:        20px;
+  height:           20px;
+  padding:          0 6px;
+  border-radius:    999px;
+  background:       #25d366;
+  color:            #fff;
+  font-size:        11px;
+  font-weight:      700;
+  line-height:      1;
+  flex-shrink:      0;
+  margin-left:      auto;
+}
+
+/* Tab-level badge on the Chats / Groups toggle buttons */
+.ww-list-view-toggle button {
+  position: relative;
+}
+
+.ww-tab-badge {
+  display:          inline-flex;
+  align-items:      center;
+  justify-content:  center;
+  min-width:        18px;
+  height:           18px;
+  padding:          0 5px;
+  border-radius:    999px;
+  background:       #25d366;
+  color:            #fff;
+  font-size:        10px;
+  font-weight:      700;
+  line-height:      1;
+  margin-left:      5px;
+  flex-shrink:      0;
+}
+
+/* Dark-mode variants */
+.ww-dark .ww-unread-badge,
+.ww-dark .ww-tab-badge {
+  background: #25d366;
+  color: #111b21;
+}
+
