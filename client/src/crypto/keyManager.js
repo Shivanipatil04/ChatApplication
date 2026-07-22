@@ -1,22 +1,23 @@
 /**
  * E2EE — Identity Key Manager
  *
- * Responsibilities:
- *  1. Generate an ECDH P-256 identity key pair on first login/registration
- *     for this device, and store it in IndexedDB.
- *  2. Export the public key as a base64 SPKI blob and upload it to the server
- *     so other users can fetch it for key agreement.
- *  3. Provide fetchPeerPublicKey(userId) with an in-memory LRU-style cache so
- *     repeated lookups don't hit the network on every message.
+ * Generates a fresh ECDH P-256 identity key pair on every login and uploads
+ * the public key to the server. The private key lives in IndexedDB and never
+ * leaves the browser.
  *
- * The PRIVATE key is stored non-extractable in IndexedDB and NEVER leaves
- * the browser.  It is never logged, serialised to state, or sent to the server.
+ * Why regenerate on every login:
+ *   The ECDH shared secret = ECDH(myPrivate, theirPublic). Both sides must use
+ *   the SAME key pair for this to be symmetric. If a key pair was generated on
+ *   one device/origin and the other user's server entry is overwritten, the
+ *   secrets diverge. Always regenerating on login and always re-uploading
+ *   guarantees the server has exactly the public key that matches the private
+ *   key in the current browser's IDB.
  *
- * TODO(v2): key rotation on new device — implement a signed pre-key bundle
- * exchange so a new device can bootstrap keys from an existing session.
+ * TODO(v2): persistent key pairs with a signed pre-key bundle for cross-device
+ * message history recovery.
  */
 
-import { idbGet, idbSet } from './idbStore';
+import { idbSet, idbGet } from './idbStore';
 import { API_URL } from '../config/api';
 
 const PRIVATE_KEY_IDB = 'identity:privateKey';
@@ -40,43 +41,72 @@ function base64ToBuffer(b64) {
   return buf.buffer;
 }
 
+// ---- Session key cleanup ----------------------------------------------------
+
+/**
+ * Delete all derived session + group keys from IndexedDB.
+ * Must be called whenever the identity key pair is regenerated so that
+ * stale derived keys are not used to decrypt messages.
+ */
+async function clearDerivedKeys() {
+  try {
+    const db = await new Promise((resolve, reject) => {
+      const req = indexedDB.open('e2ee-keys', 1);
+      req.onsuccess = (e) => resolve(e.target.result);
+      req.onerror   = (e) => reject(e.target.error);
+    });
+    await new Promise((resolve, reject) => {
+      const tx    = db.transaction('keys', 'readwrite');
+      const store = tx.objectStore('keys');
+      const keysReq = store.getAllKeys();
+      keysReq.onsuccess = (e) => {
+        for (const key of e.target.result) {
+          if (key.startsWith('session:') || key.startsWith('groupKey:')) {
+            store.delete(key);
+          }
+        }
+        tx.oncomplete = () => resolve();
+        tx.onerror    = (err) => reject(err);
+      };
+      keysReq.onerror = (e) => reject(e.target.error);
+    });
+    console.info('[E2EE] Cleared stale session/group keys from IndexedDB.');
+  } catch (err) {
+    console.warn('[E2EE] Could not clear derived keys:', err);
+  }
+}
+
 // ---- Public API -------------------------------------------------------------
 
 /**
- * Called once after a successful login or registration.
- * - If an identity key pair already exists in IndexedDB for this device, it
- *   re-uploads the public key (idempotent upsert on the server) to handle
- *   the case where the DB row was deleted.
- * - If no key pair exists, it generates one and uploads the public key.
+ * Called on every login / registration success.
+ * Always generates a fresh key pair and uploads the public key so the server
+ * entry always matches the private key in the current browser's IndexedDB.
  *
- * @param {string} token  — JWT from localStorage, used for the upload request.
+ * @param {string} token — JWT for the upload request
  */
 export async function ensureIdentityKeyPair(token) {
   try {
-    let privateKey = await idbGet(PRIVATE_KEY_IDB);
-    let publicKey  = await idbGet(PUBLIC_KEY_IDB);
+    // Always generate fresh keys on login — this is the only way to guarantee
+    // that the server's public key matches the private key in this IDB.
+    const keyPair = await crypto.subtle.generateKey(
+      ECDH_PARAMS,
+      false, // private key non-extractable
+      ['deriveKey', 'deriveBits'],
+    );
 
-    if (!privateKey || !publicKey) {
-      // Generate a fresh ECDH P-256 key pair.
-      const keyPair = await crypto.subtle.generateKey(
-        ECDH_PARAMS,
-        false, // private key is non-extractable — it never leaves IndexedDB
-        ['deriveKey', 'deriveBits'],
-      );
-      privateKey = keyPair.privateKey;
-      publicKey  = keyPair.publicKey;
+    await idbSet(PRIVATE_KEY_IDB, keyPair.privateKey);
+    await idbSet(PUBLIC_KEY_IDB,  keyPair.publicKey);
+    console.info('[E2EE] Fresh identity key pair generated.');
 
-      await idbSet(PRIVATE_KEY_IDB, privateKey);
-      await idbSet(PUBLIC_KEY_IDB,  publicKey);
-      console.info('[E2EE] New identity key pair generated and stored in IndexedDB.');
-    } else {
-      console.info('[E2EE] Existing identity key pair found in IndexedDB.');
-    }
+    // Clear stale derived session/group keys — they used the old key pair.
+    await clearDerivedKeys();
 
-    // Export the public key as SPKI and upload it (upsert).
-    // This runs on every login so the server always has the key matching
-    // the private key currently in this browser's IndexedDB.
-    const spkiBuffer = await crypto.subtle.exportKey('spki', publicKey);
+    // Clear in-memory peer key cache — peers must be re-fetched fresh.
+    peerKeyCache.clear();
+
+    // Upload fresh public key to server (upsert).
+    const spkiBuffer   = await crypto.subtle.exportKey('spki', keyPair.publicKey);
     const publicKeyB64 = bufferToBase64(spkiBuffer);
 
     const uploadRes = await fetch(`${API_URL}/api/keys/public-key`, {
@@ -87,14 +117,11 @@ export async function ensureIdentityKeyPair(token) {
       },
       body: JSON.stringify({ publicKey: publicKeyB64 }),
     });
+
     if (uploadRes.ok) {
       console.info('[E2EE] Public key uploaded to server successfully.');
-      // Clear cached session keys — they were derived with the old key pair
-      // and must be re-derived now that the public key on server is fresh.
-      // This ensures both sides always agree on the shared ECDH secret.
-      await clearAllSessionKeys();
     } else {
-      console.warn('[E2EE] Public key upload failed with status:', uploadRes.status);
+      console.warn('[E2EE] Public key upload failed:', uploadRes.status);
     }
   } catch (err) {
     console.error('[E2EE] ensureIdentityKeyPair failed:', err);
@@ -102,43 +129,7 @@ export async function ensureIdentityKeyPair(token) {
 }
 
 /**
- * Clear all cached session and group keys from IndexedDB.
- * Called after uploading a fresh public key so stale derived keys don't
- * cause one-way decryption failures.
- */
-async function clearAllSessionKeys() {
-  try {
-    const { idbGet: get, idbDelete } = await import('./idbStore');
-    // We can't enumerate IDB keys without opening the store directly,
-    // so open the DB and clear all entries that are session/group keys.
-    const db = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('e2ee-keys', 1);
-      req.onsuccess = (e) => resolve(e.target.result);
-      req.onerror   = (e) => reject(e.target.error);
-    });
-    const tx    = db.transaction('keys', 'readwrite');
-    const store = tx.objectStore('keys');
-    const keys  = await new Promise((resolve, reject) => {
-      const req = store.getAllKeys();
-      req.onsuccess = (e) => resolve(e.target.result);
-      req.onerror   = (e) => reject(e.target.error);
-    });
-    for (const key of keys) {
-      if (key.startsWith('session:') || key.startsWith('groupKey:')) {
-        store.delete(key);
-      }
-    }
-    console.info('[E2EE] Cleared stale session/group keys from IndexedDB.');
-  } catch {
-    // Non-fatal — stale keys will just cause decryption failures which the
-    // UI handles gracefully.
-  }
-}
-
-/**
  * Load our own private ECDH key from IndexedDB.
- * Returns null if it hasn't been generated yet (caller should handle gracefully).
- *
  * @returns {Promise<CryptoKey|null>}
  */
 export async function getOwnPrivateKey() {
@@ -146,14 +137,12 @@ export async function getOwnPrivateKey() {
 }
 
 /**
- * Fetch and import a peer's ECDH public key.
- * Results are cached in-memory for the lifetime of the page so repeated
- * sends to the same contact only hit the network once.
+ * Fetch and import a peer's ECDH public key from the server.
+ * Results are cached in-memory for the lifetime of the page.
  *
- * @param {string} userId  — the target user's MongoDB _id string
- * @param {string} token   — JWT for the GET request
+ * @param {string} userId
+ * @param {string} token
  * @returns {Promise<CryptoKey>}
- * @throws if the server returns 404 (peer hasn't uploaded a key yet)
  */
 export async function fetchPeerPublicKey(userId, token) {
   if (peerKeyCache.has(userId)) return peerKeyCache.get(userId);
@@ -167,14 +156,12 @@ export async function fetchPeerPublicKey(userId, token) {
   }
 
   const { publicKey: b64 } = await res.json();
-  const spkiBuffer = base64ToBuffer(b64);
-
   const cryptoKey = await crypto.subtle.importKey(
     'spki',
-    spkiBuffer,
+    base64ToBuffer(b64),
     ECDH_PARAMS,
-    true,  // extractable = true for the public key (safe — it's public)
-    [],    // ECDH public keys have no usages at import time
+    true,
+    [],
   );
 
   peerKeyCache.set(userId, cryptoKey);
@@ -182,7 +169,7 @@ export async function fetchPeerPublicKey(userId, token) {
 }
 
 /**
- * Manually evict a peer's cached public key (e.g. after a key-rotation event).
+ * Evict one peer's public key from the in-memory cache.
  * @param {string} userId
  */
 export function evictPeerKeyCache(userId) {

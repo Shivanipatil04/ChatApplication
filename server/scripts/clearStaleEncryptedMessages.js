@@ -30,7 +30,7 @@ const mongoose = require('mongoose');
 const Chat = require('../models/Chat');
 const GroupMessage = require('../models/GroupMessage');
 
-const PLACEHOLDER = '[Message sent from another device]';
+const PLACEHOLDER = '[Message sent from another device — please send again]';
 
 function isEncryptedBlob(msg) {
   if (!msg || typeof msg !== 'string' || !msg.trim()) return false;
