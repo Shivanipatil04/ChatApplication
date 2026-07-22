@@ -8,6 +8,8 @@ const mongoose = require('mongoose');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const authRoutes = require('./Routes/authroutes');
+// E2EE integration point
+const keyRoutes  = require('./routes/keyRoutes');
 const { auth, authenticateToken } = require('./middleware/auth');
 const User = require('./models/User');
 const Chat = require('./models/Chat');
@@ -89,6 +91,8 @@ const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, message: { me
 const apiLimiter = rateLimit({ windowMs: 1 * 60 * 1000, max: 200 });
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api', apiLimiter);
+// E2EE integration point
+app.use('/api/keys', keyRoutes);
 
 // ============================================================
 // UPLOAD ROUTE  — POST /api/upload
@@ -1016,16 +1020,52 @@ app.post('/api/groups', auth, async (req, res) => {
 
 app.get('/api/groups', auth, async (req, res) => {
     try {
-        const groups = await Group.find({ 'members.userId': req.user.userId }).lean();
+        const userId = req.user.userId;
+        const groups = await Group.find({ 'members.userId': userId }).lean();
         const groupIds = groups.map((group) => group._id.toString());
         const messages = await GroupMessage.find({ groupId: { $in: groupIds } }).sort({ timeStamp: -1 }).lean();
         const latestByGroup = new Map();
         messages.forEach((message) => !latestByGroup.has(message.groupId) && latestByGroup.set(message.groupId, message));
+
+        // Build a map of lastRead timestamp per group for this user
+        const lastReadByGroup = new Map();
+        groups.forEach((group) => {
+            const entry = (group.lastRead || []).find((r) => r.userId === userId);
+            if (entry?.timestamp) lastReadByGroup.set(group._id.toString(), new Date(entry.timestamp));
+        });
+
+        // Count messages from others that arrived after the user last read each group
+        const unreadByGroup = new Map();
+        for (const [groupId, lastReadAt] of lastReadByGroup.entries()) {
+            const count = await GroupMessage.countDocuments({
+                groupId,
+                senderId: { $ne: userId },
+                timeStamp: { $gt: lastReadAt.toISOString() },
+                deletedForEveryone: false,
+                deletedFor: { $ne: userId },
+            });
+            if (count > 0) unreadByGroup.set(groupId, count);
+        }
+        // Groups never opened (no lastRead entry) — count all messages from others
+        for (const group of groups) {
+            const gid = group._id.toString();
+            if (!lastReadByGroup.has(gid)) {
+                const count = await GroupMessage.countDocuments({
+                    groupId: gid,
+                    senderId: { $ne: userId },
+                    deletedForEveryone: false,
+                    deletedFor: { $ne: userId },
+                });
+                if (count > 0) unreadByGroup.set(gid, count);
+            }
+        }
+
         const result = groups.map((group) => {
             const latest = latestByGroup.get(group._id.toString());
             return {
                 id: group._id.toString(), name: group.name, description: group.description || '', createdBy: group.createdBy,
                 members: group.members, lastMessage: previewFor(latest), timeStamp: latest?.timeStamp || group.createdAt, createdAt: group.createdAt,
+                unreadCount: unreadByGroup.get(group._id.toString()) || 0,
             };
         }).sort((a, b) => new Date(b.timeStamp) - new Date(a.timeStamp));
         res.json(result);
@@ -1121,6 +1161,31 @@ app.post('/api/groups/:groupId/leave', auth, async (req, res) => {
     }
 });
 
+// Mark a group as read — updates lastRead timestamp for the calling user.
+// Called by the client when the user opens a group chat.
+app.post('/api/groups/:groupId/read', auth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { groupId } = req.params;
+        await Group.updateOne(
+            { _id: groupId, 'members.userId': userId },
+            {
+                $pull:  { lastRead: { userId } },       // remove old entry
+            },
+        );
+        await Group.updateOne(
+            { _id: groupId, 'members.userId': userId },
+            {
+                $push:  { lastRead: { userId, timestamp: new Date() } }, // add fresh entry
+            },
+        );
+        res.json({ ok: true });
+    } catch (err) {
+        console.error('Could not mark group read:', err);
+        res.status(500).json({ message: 'Could not mark group read' });
+    }
+});
+
 app.get('/api/groups/:groupId/messages', auth, async (req, res) => {
     try {
         const group = await Group.findOne({ _id: req.params.groupId, 'members.userId': req.user.userId }).select('_id');
@@ -1181,11 +1246,27 @@ app.get('/api/conversations', auth, async (req, res) => {
 
         const contacts = await User.find({ _id: { $in: [...latestByContact.keys()] } }).select('username name email').lean();
         const contactsById = new Map(contacts.map((contact) => [contact._id.toString(), contact]));
+
+        // Count unread messages per contact (sent TO me, not read yet)
+        const unreadCounts = await Chat.aggregate([
+            { $match: { recipientId: userId, read: false, deletedForEveryone: false, deletedFor: { $ne: userId } } },
+            { $group: { _id: '$senderId', count: { $sum: 1 } } },
+        ]);
+        const unreadByContact = new Map(unreadCounts.map((r) => [r._id, r.count]));
+
         const conversations = [...latestByContact.entries()]
             .map(([contactId, message]) => {
                 const contact = contactsById.get(contactId);
                 if (!contact) return null;
-                return { id: contactId, name: contact.name, username: contact.username, email: contact.email, lastMessage: previewFor(message), timeStamp: message.timeStamp };
+                return {
+                    id: contactId,
+                    name: contact.name,
+                    username: contact.username,
+                    email: contact.email,
+                    lastMessage: previewFor(message),
+                    timeStamp: message.timeStamp,
+                    unreadCount: unreadByContact.get(contactId) || 0,
+                };
             })
             .filter(Boolean);
         res.json(conversations);

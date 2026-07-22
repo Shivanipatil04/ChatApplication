@@ -5,6 +5,9 @@ import { API_URL, api } from '../config/api'
 import { useDirectCall } from '../hooks/useDirectCall'
 import { useGroupCall } from '../hooks/useGroupCall'
 import ThreeDotMenu from '../components/ThreeDotMenu'
+// E2EE integration point
+import { encryptMessage, decryptMessage, DECRYPT_FALLBACK, isEncryptedPayload } from '../services/encryptionService'
+import EncryptionBanner from '../components/EncryptionBanner'
 import {
   Video, Search, MoreVertical, Paperclip, Send, X, MessageSquarePlus,
   UsersRound, LogOut, Check, CheckCheck, ChevronDown, PhoneOff, ArrowLeft,
@@ -164,6 +167,9 @@ const ChatApp = () => {
   const [groupMembers, setGroupMembers] = useState([]);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  // Unread message counts — { [contactId|groupId]: number }
+  // Incremented only for incoming messages while that chat is NOT currently open.
+  const [unreadCounts, setUnreadCounts] = useState({});
   const [incomingCall, setIncomingCall] = useState(null);
   const [activeCall, setActiveCall] = useState(null);
   const [localStream, setLocalStream] = useState(null);
@@ -492,8 +498,47 @@ const ChatApp = () => {
           api.get('/api/pinned-chats', authorization),
         ]);
         setContacts(friendRes.data);
-        setConversations(convRes.data);
-        setGroups(groupRes.data);
+        
+        // E2EE integration point — decrypt lastMessage previews for conversations
+        const decryptedConvs = await Promise.all(
+          convRes.data.map(async (conv) => {
+            if (conv.lastMessage) {
+              try {
+                const decrypted = await decryptMessage(
+                  { type: 'direct', myUserId: user.id, theirUserId: conv.id, token },
+                  conv.lastMessage,
+                );
+                return { ...conv, lastMessage: decrypted };
+              } catch { return conv; }
+            }
+            return conv;
+          }),
+        );
+        setConversations(decryptedConvs);
+        
+        // E2EE integration point — decrypt lastMessage previews for groups
+        const decryptedGroups = await Promise.all(
+          groupRes.data.map(async (grp) => {
+            if (grp.lastMessage) {
+              try {
+                const decrypted = await decryptMessage(
+                  { type: 'group', myUserId: user.id, groupId: grp.id, token },
+                  grp.lastMessage,
+                );
+                return { ...grp, lastMessage: decrypted };
+              } catch { return grp; }
+            }
+            return grp;
+          }),
+        );
+        setGroups(decryptedGroups);
+
+        // Seed initial unread counts from server — covers messages already in DB before app opened
+        const initialUnread = {};
+        convRes.data.forEach((conv) => { if (conv.unreadCount > 0) initialUnread[conv.id] = conv.unreadCount; });
+        groupRes.data.forEach((grp)  => { if (grp.unreadCount  > 0) initialUnread[grp.id]  = grp.unreadCount;  });
+        setUnreadCounts(initialUnread);
+        
         setPinnedChatKeys(pinnedRes.data.pinnedChats || []);
         setLastSeenMap(Object.fromEntries(friendRes.data.filter((f) => f.lastSeen).map((f) => [f.id, f.lastSeen])));
       } catch (e) { setError(e.response?.data?.message || 'Could not load chats.'); }
@@ -507,21 +552,39 @@ const ChatApp = () => {
 
     socket.on('connect_error', (err) => { console.error('[socket] connect_error', err); logout(); });
 
-    socket.on('msg', (item) => {
+    socket.on('msg', async (item) => {
       const contactId = item.senderId === user.id ? item.recipientId : item.senderId;
+      // E2EE integration point — decrypt text payload before rendering
+      if (item.type === 'text' && item.msg) {
+        try {
+          item = { ...item, msg: await decryptMessage({ type: 'direct', myUserId: user.id, theirUserId: contactId, token }, item.msg) };
+        } catch { /* leave msg as-is — decryptMessage already returns DECRYPT_FALLBACK internally */ }
+      }
       const contact = contactsRef.current.find((e) => e.id === contactId);
       if (contact) setConversations((prev) => [{ ...contact, lastMessage: previewFor(item), timeStamp: item.timeStamp }, ...prev.filter((e) => e.id !== contactId)]);
       if (selectedRef.current?.type === 'direct' && selectedRef.current.data.id === contactId) {
         setMessages((prev) => mergeMessages(prev, [item]));
         if (item.senderId !== user.id) socketRef.current?.emit('mark-read', { contactId });
+      } else if (item.senderId !== user.id) {
+        // Chat is not open — increment unread badge for this contact
+        setUnreadCounts((prev) => ({ ...prev, [contactId]: (prev[contactId] || 0) + 1 }));
       }
-      setTypingMap((prev) => ({ ...prev, [contactId]: false }));
-    });
+      setTypingMap((prev) => ({ ...prev, [contactId]: false }));    });
 
-    socket.on('group-msg', (item) => {
+    socket.on('group-msg', async (item) => {
+      // E2EE integration point — decrypt text payload before rendering
+      if (item.type === 'text' && item.msg) {
+        try {
+          item = { ...item, msg: await decryptMessage({ type: 'group', myUserId: user.id, groupId: item.groupId, token }, item.msg) };
+        } catch { /* leave msg as-is */ }
+      }
       const group = groupsRef.current.find((e) => e.id === item.groupId);
       if (group) setGroups((prev) => [{ ...group, lastMessage: previewFor(item), timeStamp: item.timeStamp }, ...prev.filter((e) => e.id !== item.groupId)]);
       if (selectedRef.current?.type === 'group' && selectedRef.current.data.id === item.groupId) setMessages((prev) => mergeMessages(prev, [item]));
+      else if (item.senderId !== user.id) {
+        // Group chat is not open — increment unread badge for this group
+        setUnreadCounts((prev) => ({ ...prev, [item.groupId]: (prev[item.groupId] || 0) + 1 }));
+      }
       setTypingMap((prev) => {
         const cur = new Set(prev[item.groupId] || []);
         cur.delete(item.username);
@@ -653,6 +716,13 @@ const ChatApp = () => {
     emitTyping(false);
     setSelected({ type, data });
     setMessages([]);
+    // Clear unread badge for the chat being opened
+    setUnreadCounts((prev) => {
+      if (!prev[data.id]) return prev;
+      const next = { ...prev };
+      delete next[data.id];
+      return next;
+    });
     setError('');
     setActivePopover(null);
     setShowCallsPanel(false);
@@ -665,8 +735,24 @@ const ChatApp = () => {
     try {
       const url = type === 'group' ? `/api/groups/${data.id}/messages` : `/api/messages/${data.id}`;
       const result = await api.get(url, authorization);
-      setMessages((prev) => mergeMessages(result.data, prev));
-      if (type === 'group') socketRef.current?.emit('join-group', { groupId: data.id });
+      // E2EE integration point — decrypt all text messages loaded from the server
+      const decrypted = await Promise.all(
+        result.data.map(async (item) => {
+          if (item.type !== 'text' || !item.msg) return item;
+          try {
+            const ctx = type === 'group'
+              ? { type: 'group',  myUserId: user.id, groupId: data.id, token }
+              : { type: 'direct', myUserId: user.id, theirUserId: data.id, token };
+            return { ...item, msg: await decryptMessage(ctx, item.msg) };
+          } catch { return item; }
+        }),
+      );
+      setMessages((prev) => mergeMessages(decrypted, prev));
+      if (type === 'group') {
+        socketRef.current?.emit('join-group', { groupId: data.id });
+        // Mark group as read so the unread count resets on next load
+        api.post(`/api/groups/${data.id}/read`, {}, authorization).catch(() => {});
+      }
       if (type === 'direct') socketRef.current?.emit('mark-read', { contactId: data.id });
     } catch (e) { setError(e.response?.data?.message || 'Could not load this conversation.'); }
   };
@@ -685,13 +771,39 @@ const ChatApp = () => {
     typingTimeoutRef.current = setTimeout(() => emitTyping(false), 2000);
   };
 
-  const sendMessage = (event) => {
+  const sendMessage = async (event) => {
     event.preventDefault();
     if (!selected || !message.trim() || isBlocked) return;
     clearTimeout(typingTimeoutRef.current);
     emitTyping(false);
-    if (selected.type === 'group') socketRef.current?.emit('group-msg', { groupId: selected.data.id, message });
-    else socketRef.current?.emit('msg', { recipientId: selected.data.id, message });
+    // E2EE integration point — encrypt plaintext before it leaves the browser
+    const encCtx = {
+      type:        selected.type,
+      myUserId:    user.id,
+      theirUserId: selected.type === 'direct' ? selected.data.id : undefined,
+      groupId:     selected.type === 'group'  ? selected.data.id : undefined,
+      token,
+    };
+    let encryptedContent;
+    try {
+      encryptedContent = await encryptMessage(encCtx, message);
+    } catch (encErr) {
+      // If it's a group and the key is missing, getOrFetchGroupKey will have
+      // attempted self-healing (generateAndDistributeGroupKey). Retry once.
+      if (encCtx.type === 'group') {
+        try {
+          encryptedContent = await encryptMessage(encCtx, message);
+        } catch {
+          setError('Could not encrypt message — group keys are being set up. Please try again in a moment.');
+          return;
+        }
+      } else {
+        setError('Could not encrypt message — your keys may not be ready. Please refresh and try again.');
+        return; // block send — never emit plaintext
+      }
+    }
+    if (selected.type === 'group') socketRef.current?.emit('group-msg', { groupId: selected.data.id, message: encryptedContent });
+    else socketRef.current?.emit('msg', { recipientId: selected.data.id, message: encryptedContent });
     setMessage('');
   };
 
@@ -1221,6 +1333,11 @@ const ChatApp = () => {
       const res = await api.post('/api/groups', { name: groupName, memberIds: groupMembers }, authorization);
       setGroups((prev) => [res.data, ...prev]); setGroupName(''); setGroupMembers([]); setActivePopover(null);
       socketRef.current?.emit('join-group', { groupId: res.data.id });
+      // E2EE integration point — distribute group key to all members immediately after creation
+      const allMemberIds = (res.data.members || []).map((m) => m.userId);
+      import('../crypto/groupCrypto').then(({ generateAndDistributeGroupKey }) => {
+        generateAndDistributeGroupKey(res.data.id, allMemberIds, user.id, token).catch(() => {});
+      });
       selectChat('group', res.data);
     } catch (e) { setError(e.response?.data?.message || 'Could not create group.'); }
   };
@@ -1248,6 +1365,10 @@ const ChatApp = () => {
     const bp = pinnedChatKeys.includes(chatKeyFor('group', b.id)) ? 1 : 0;
     return bp - ap;
   });
+
+  // Total unread counts for the tab badges (like WhatsApp bottom tabs)
+  const totalUnreadDirect = conversations.reduce((sum, c) => sum + (unreadCounts[c.id] || 0), 0);
+  const totalUnreadGroups = groups.reduce((sum, g) => sum + (unreadCounts[g.id] || 0), 0);
 
   // Favourite chats section
   const favouriteConversations = conversations.filter((c) => chatSettings[chatKeyFor('direct', c.id)]?.favourite);
@@ -1598,8 +1719,14 @@ const ChatApp = () => {
           ) : (
             <>
             <div className="ww-list-view-toggle">
-              <button type="button" className={chatListView === 'direct' ? 'active' : ''} onClick={() => setChatListView('direct')}><MessageCircle size={15} /> Chats</button>
-              <button type="button" className={chatListView === 'groups' ? 'active' : ''} onClick={() => setChatListView('groups')}><UsersRound size={15} /> Groups</button>
+              <button type="button" className={chatListView === 'direct' ? 'active' : ''} onClick={() => setChatListView('direct')}>
+                <MessageCircle size={15} /> Chats
+                {totalUnreadDirect > 0 && <span className="ww-tab-badge">{totalUnreadDirect > 99 ? '99+' : totalUnreadDirect}</span>}
+              </button>
+              <button type="button" className={chatListView === 'groups' ? 'active' : ''} onClick={() => setChatListView('groups')}>
+                <UsersRound size={15} /> Groups
+                {totalUnreadGroups > 0 && <span className="ww-tab-badge">{totalUnreadGroups > 99 ? '99+' : totalUnreadGroups}</span>}
+              </button>
             </div>
             <div className="ww-conversation-list">
               {chatListView === 'direct' ? (
@@ -1620,6 +1747,7 @@ const ChatApp = () => {
                   {sortedConversations.map((chat) => {
                     const rowKey = chatKeyFor('direct', chat.id);
                     const isPinned = pinnedChatKeys.includes(rowKey);
+                    const unread = unreadCounts[chat.id] || 0;
                     return (
                       <button type="button" key={chat.id} className={`ww-conversation ${selected?.type === 'direct' && selected.data.id === chat.id ? 'active' : ''} ${isPinned ? 'pinned' : ''}`} onClick={() => bulkSelectMode ? toggleChatSelected(rowKey) : selectChat('direct', chat)}>
                         {bulkSelectMode && <input type="checkbox" className="ww-bulk-checkbox" checked={selectedChatKeys.has(rowKey)} onChange={() => toggleChatSelected(rowKey)} onClick={(e) => e.stopPropagation()} />}
@@ -1628,7 +1756,8 @@ const ChatApp = () => {
                           <span className="ww-conversation-top"><strong>{chat.name || chat.username}</strong>{chat.timeStamp && <span className="ww-conversation-time">{new Date(chat.timeStamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}</span>
                           <span className="ww-conversation-preview">{chat.lastMessage}</span>
                         </span>
-                        {isPinned && <span className="ww-pin-badge" title="Pinned">📌</span>}
+                        {unread > 0 && <span className="ww-unread-badge">{unread > 99 ? '99+' : unread}</span>}
+                        {isPinned && !unread && <span className="ww-pin-badge" title="Pinned">📌</span>}
                       </button>
                     );
                   })}
@@ -1652,6 +1781,7 @@ const ChatApp = () => {
                   {sortedGroups.map((group) => {
                     const rowKey = chatKeyFor('group', group.id);
                     const isPinned = pinnedChatKeys.includes(rowKey);
+                    const unread = unreadCounts[group.id] || 0;
                     return (
                       <button type="button" key={group.id} className={`ww-conversation ${selected?.type === 'group' && selected.data.id === group.id ? 'active' : ''} ${isPinned ? 'pinned' : ''}`} onClick={() => bulkSelectMode ? toggleChatSelected(rowKey) : selectChat('group', group)}>
                         {bulkSelectMode && <input type="checkbox" className="ww-bulk-checkbox" checked={selectedChatKeys.has(rowKey)} onChange={() => toggleChatSelected(rowKey)} onClick={(e) => e.stopPropagation()} />}
@@ -1660,7 +1790,8 @@ const ChatApp = () => {
                           <span className="ww-conversation-top"><strong>{group.name}</strong>{group.timeStamp && <span className="ww-conversation-time">{new Date(group.timeStamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}</span>
                           <span className="ww-conversation-preview">{group.lastMessage || `${group.members.length} members`}</span>
                         </span>
-                        {isPinned && <span className="ww-pin-badge" title="Pinned">📌</span>}
+                        {unread > 0 && <span className="ww-unread-badge">{unread > 99 ? '99+' : unread}</span>}
+                        {isPinned && !unread && <span className="ww-pin-badge" title="Pinned">📌</span>}
                       </button>
                     );
                   })}
@@ -1765,6 +1896,8 @@ const ChatApp = () => {
             {isDisappearing && !isBlocked && <div className="ww-disappearing-banner"><Clock size={13} /> Disappearing messages are on for this chat.</div>}
 
             <div className="ww-chat" ref={chatScrollRef} style={currentSettings.theme ? { '--chat-accent': currentSettings.theme } : undefined}>
+              {/* E2EE integration point — WhatsApp-style encryption notice */}
+              <EncryptionBanner />
               {groupedMessages.map((group) => (
                 <React.Fragment key={group.label}>
                   <div className="ww-date-chip"><span>{group.label}</span></div>

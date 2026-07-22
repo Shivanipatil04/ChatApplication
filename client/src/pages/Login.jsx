@@ -1,11 +1,32 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../config/api'
+// E2EE integration point
+import { ensureIdentityKeyPair } from '../crypto/keyManager'
 import './Auth.css'
+
+// Eye icon components — inline SVG, no extra dependency
+const EyeIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+    fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+    <circle cx="12" cy="12" r="3"/>
+  </svg>
+)
+
+const EyeOffIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+    fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+    <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+    <line x1="1" y1="1" x2="23" y2="23"/>
+  </svg>
+)
 
 const Login = () => {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [rememberMe, setRememberMe] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -20,6 +41,8 @@ const Login = () => {
       const { data } = await api.post('/api/auth/login', { email, password, rememberMe })
       localStorage.setItem('chatToken', data.token)
       localStorage.setItem('chatUser', JSON.stringify(data.user))
+      // E2EE integration point — generate/upload identity key pair on first login for this device
+      await ensureIdentityKeyPair(data.token)
       navigate('/chat')
     } catch (err) {
       setError(err.response?.data?.message || 'Unable to log in. Please try again.')
@@ -49,13 +72,23 @@ const Login = () => {
           </div>
           <div className="auth-field">
             <label>Password</label>
-            <input
-              type="password"
-              placeholder="Enter password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
+            <div className="auth-password-wrap">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                placeholder="Enter password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+              <button
+                type="button"
+                className="auth-eye-btn"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+              </button>
+            </div>
           </div>
           <div className="auth-row">
             <label className="auth-checkbox">
@@ -79,11 +112,13 @@ const Login = () => {
 
 // ---- Forgot Password Flow (inline 3-step) ----
 const ForgotPassword = ({ onBack }) => {
-  const [step, setStep] = useState(1) // 1=email, 2=otp, 3=reset
+  const [step, setStep] = useState(1)
   const [email, setEmail] = useState('')
   const [otp, setOtp] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [showNew, setShowNew] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -160,11 +195,33 @@ const ForgotPassword = ({ onBack }) => {
           <form className="auth-form" onSubmit={resetPassword}>
             <div className="auth-field">
               <label>New password</label>
-              <input type="password" placeholder="Min. 6 characters" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required />
+              <div className="auth-password-wrap">
+                <input
+                  type={showNew ? 'text' : 'password'}
+                  placeholder="Min. 6 characters"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  required
+                />
+                <button type="button" className="auth-eye-btn" onClick={() => setShowNew((v) => !v)} aria-label={showNew ? 'Hide' : 'Show'}>
+                  {showNew ? <EyeOffIcon /> : <EyeIcon />}
+                </button>
+              </div>
             </div>
             <div className="auth-field">
               <label>Confirm password</label>
-              <input type="password" placeholder="Repeat new password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required />
+              <div className="auth-password-wrap">
+                <input
+                  type={showConfirm ? 'text' : 'password'}
+                  placeholder="Repeat new password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                />
+                <button type="button" className="auth-eye-btn" onClick={() => setShowConfirm((v) => !v)} aria-label={showConfirm ? 'Hide' : 'Show'}>
+                  {showConfirm ? <EyeOffIcon /> : <EyeIcon />}
+                </button>
+              </div>
             </div>
             <button className="auth-button" type="submit" disabled={loading}>{loading ? 'Resetting…' : 'Reset Password'}</button>
           </form>
