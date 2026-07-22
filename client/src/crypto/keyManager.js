@@ -57,14 +57,13 @@ export async function ensureIdentityKeyPair(token) {
     let publicKey  = await idbGet(PUBLIC_KEY_IDB);
 
     if (!privateKey || !publicKey) {
-      // Generate a fresh non-extractable ECDH P-256 key pair.
+      // Generate a fresh ECDH P-256 key pair.
       const keyPair = await crypto.subtle.generateKey(
         ECDH_PARAMS,
         false, // private key is non-extractable — it never leaves IndexedDB
         ['deriveKey', 'deriveBits'],
       );
       privateKey = keyPair.privateKey;
-      // Public key must be extractable so we can export and share it.
       publicKey  = keyPair.publicKey;
 
       await idbSet(PRIVATE_KEY_IDB, privateKey);
@@ -75,6 +74,8 @@ export async function ensureIdentityKeyPair(token) {
     }
 
     // Export the public key as SPKI and upload it (upsert).
+    // This runs on every login so the server always has the key matching
+    // the private key currently in this browser's IndexedDB.
     const spkiBuffer = await crypto.subtle.exportKey('spki', publicKey);
     const publicKeyB64 = bufferToBase64(spkiBuffer);
 
@@ -88,12 +89,49 @@ export async function ensureIdentityKeyPair(token) {
     });
     if (uploadRes.ok) {
       console.info('[E2EE] Public key uploaded to server successfully.');
+      // Clear cached session keys — they were derived with the old key pair
+      // and must be re-derived now that the public key on server is fresh.
+      // This ensures both sides always agree on the shared ECDH secret.
+      await clearAllSessionKeys();
     } else {
       console.warn('[E2EE] Public key upload failed with status:', uploadRes.status);
     }
   } catch (err) {
-    // Log the real error so it's visible in DevTools Console.
     console.error('[E2EE] ensureIdentityKeyPair failed:', err);
+  }
+}
+
+/**
+ * Clear all cached session and group keys from IndexedDB.
+ * Called after uploading a fresh public key so stale derived keys don't
+ * cause one-way decryption failures.
+ */
+async function clearAllSessionKeys() {
+  try {
+    const { idbGet: get, idbDelete } = await import('./idbStore');
+    // We can't enumerate IDB keys without opening the store directly,
+    // so open the DB and clear all entries that are session/group keys.
+    const db = await new Promise((resolve, reject) => {
+      const req = indexedDB.open('e2ee-keys', 1);
+      req.onsuccess = (e) => resolve(e.target.result);
+      req.onerror   = (e) => reject(e.target.error);
+    });
+    const tx    = db.transaction('keys', 'readwrite');
+    const store = tx.objectStore('keys');
+    const keys  = await new Promise((resolve, reject) => {
+      const req = store.getAllKeys();
+      req.onsuccess = (e) => resolve(e.target.result);
+      req.onerror   = (e) => reject(e.target.error);
+    });
+    for (const key of keys) {
+      if (key.startsWith('session:') || key.startsWith('groupKey:')) {
+        store.delete(key);
+      }
+    }
+    console.info('[E2EE] Cleared stale session/group keys from IndexedDB.');
+  } catch {
+    // Non-fatal — stale keys will just cause decryption failures which the
+    // UI handles gracefully.
   }
 }
 
@@ -149,4 +187,12 @@ export async function fetchPeerPublicKey(userId, token) {
  */
 export function evictPeerKeyCache(userId) {
   peerKeyCache.delete(userId);
+}
+
+/**
+ * Clear the entire in-memory peer public key cache.
+ * Called on login so stale keys from a previous session don't persist.
+ */
+export function clearPeerKeyCache() {
+  peerKeyCache.clear();
 }

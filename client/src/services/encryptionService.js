@@ -29,7 +29,7 @@ import { encryptDirect, decryptDirect } from '../crypto/sessionCrypto';
 import { encryptGroup, decryptGroup }   from '../crypto/groupCrypto';
 
 /** Displayed in place of a message that cannot be decrypted on this device. */
-export const DECRYPT_FALLBACK = '🔒 Unable to decrypt this message';
+export const DECRYPT_FALLBACK = '🔒 Message encrypted on another device';
 
 /**
  * Detect whether a string looks like an E2EE ciphertext blob.
