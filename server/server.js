@@ -16,6 +16,7 @@ const GroupMessage = require('./models/GroupMessage');
 const CallHistory = require('./models/CallHistory');
 const GroupCallHistory = require('./models/GroupCallHistory');
 const Status = require('./models/Status');
+const Meeting = require('./models/Meeting');
 
 // ---- Cloudinary + Multer setup ----
 const cloudinary = require('cloudinary').v2;
@@ -26,6 +27,17 @@ cloudinary.config({
     api_key:    process.env.CLOUDINARY_API_KEY,
     api_secret: process.env.CLOUDINARY_API_SECRET,
 });
+
+// Warn at startup if credentials are missing — helps catch misconfigured deployments early
+if (!process.env.CLOUDINARY_CLOUD_NAME || process.env.CLOUDINARY_CLOUD_NAME === 'your_cloud_name') {
+    console.warn('[cloudinary] WARNING: CLOUDINARY_CLOUD_NAME is not set. File uploads will fail.');
+}
+if (!process.env.CLOUDINARY_API_KEY || process.env.CLOUDINARY_API_KEY === 'your_api_key') {
+    console.warn('[cloudinary] WARNING: CLOUDINARY_API_KEY is not set. File uploads will fail.');
+}
+if (!process.env.CLOUDINARY_API_SECRET || process.env.CLOUDINARY_API_SECRET === 'your_api_secret') {
+    console.warn('[cloudinary] WARNING: CLOUDINARY_API_SECRET is not set. File uploads will fail.');
+}
 
 // Determine the correct Cloudinary resource_type from the file's MIME type
 const resourceTypeFor = (mimetype = '') => {
@@ -99,6 +111,11 @@ app.use('/api', apiLimiter);
 // ============================================================
 app.post('/api/upload', auth, multerMemory.single('file'), async (req, res) => {
     if (!req.file) return res.status(400).json({ message: 'No file provided' });
+
+    // Fail fast with a clear message if credentials are not configured
+    if (!process.env.CLOUDINARY_CLOUD_NAME || process.env.CLOUDINARY_CLOUD_NAME === 'your_cloud_name') {
+        return res.status(500).json({ message: 'Cloudinary is not configured. Add CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET to your environment variables.' });
+    }
 
     const resType = resourceTypeFor(req.file.mimetype);
 
@@ -740,9 +757,14 @@ io.on('connection', (socket)=>{
                     if (call.participants.has(userId)) {
                         call.participants.delete(userId);
                         io.to(`call:${callId}`).emit('group-call-participant-left', { callId, userId });
+                        if (!call.leftIds) call.leftIds = new Set();
+                        call.leftIds.add(userId);
                         if (call.participants.size === 0) {
+                            if (call.groupId) io.to(`group:${call.groupId}`).emit('group-call-ended-in-group', { callId, groupId: call.groupId });
                             finalizeGroupCall(callId, call);
                             activeGroupCalls.delete(callId);
+                        } else if (call.groupId) {
+                            io.to(`group:${call.groupId}`).emit('group-call-still-active', { callId, groupId: call.groupId });
                         }
                     } else if (call.invited.has(userId)) {
                         call.invited.delete(userId);
@@ -900,13 +922,51 @@ io.on('connection', (socket)=>{
         if (!call) return;
         call.participants.delete(userId);
         call.invited.delete(userId);
+        // Track who left so they can rejoin within the same call
+        if (!call.leftIds) call.leftIds = new Set();
+        call.leftIds.add(userId);
         socket.leave(`call:${callId}`);
         io.to(`call:${callId}`).emit('group-call-participant-left', { callId, userId });
+        // Notify the group chat room (if scoped to a group) so the group header can show a rejoin banner
+        if (call.groupId) {
+            io.to(`group:${call.groupId}`).emit('group-call-still-active', { callId, groupId: call.groupId });
+        }
         if (call.participants.size === 0) {
+            // Tell the group chat room the call is over so rejoin banners dismiss
+            if (call.groupId) io.to(`group:${call.groupId}`).emit('group-call-ended-in-group', { callId, groupId: call.groupId });
             finalizeGroupCall(callId, call);
             activeGroupCalls.delete(callId);
         }
     });
+
+    // Rejoin a call the user previously left (but which is still active)
+    socket.on('group-call-rejoin', ({ callId }) => {
+        const call = activeGroupCalls.get(callId);
+        if (!call) { socket.emit('group-call-error', { message: 'That call has ended.' }); return; }
+        if (call.participants.size >= MAX_GROUP_CALL_PARTICIPANTS && !call.participants.has(userId)) {
+            socket.emit('group-call-error', { message: 'This call is already full.' }); return;
+        }
+        call.leftIds?.delete(userId);
+        call.participants.set(userId, socket.user.username);
+        call.joinTimes.set(userId, Date.now());
+        socket.join(`call:${callId}`);
+
+        const existing = [...call.participants.entries()]
+            .filter(([id]) => id !== userId)
+            .map(([id, username]) => ({ userId: id, username }));
+        socket.emit('group-call-state', { callId, participants: existing });
+        socket.to(`call:${callId}`).emit('group-call-participant-joined', { callId, userId, username: socket.user.username });
+    });
+
+    // Query whether a specific call is still active (used to validate rejoin banner on load)
+    socket.on('group-call-check-active', ({ callId }) => {
+        const alive = activeGroupCalls.has(callId) && activeGroupCalls.get(callId).participants.size > 0;
+        socket.emit('group-call-active-status', { callId, alive });
+    });
+
+    // ---- Meeting socket events ----
+    registerMeetingSocketHandlers(socket, userId);
+
 });
 
 app.get('/api/friends', auth, async (req, res) => {
@@ -1793,8 +1853,405 @@ app.post('/api/status/:id/view', auth, async (req, res) => {
     }
 });
 
-const PORT = process.env.PORT || 5000;
+// GET viewers of a specific status (owner only)
+app.get('/api/status/:id/viewers', auth, async (req, res) => {
+    try {
+        const status = await Status.findById(req.params.id).lean();
+        if (!status) return res.status(404).json({ message: 'Status not found' });
+        if (status.userId !== req.user.userId) return res.status(403).json({ message: 'Not your status' });
+        const viewerIds = status.viewers || [];
+        const users = await User.find({ _id: { $in: viewerIds } }).select('name username').lean();
+        const userMap = new Map(users.map((u) => [u._id.toString(), u]));
+        res.json(viewerIds.map((id) => ({
+            userId: id,
+            name: userMap.get(id)?.name || userMap.get(id)?.username || 'Unknown',
+            username: userMap.get(id)?.username || '',
+        })));
+    } catch (err) {
+        res.status(500).json({ message: 'Could not load viewers' });
+    }
+});
 
+// ============================================================
+// MEETINGS ROUTES
+// ============================================================
+
+// Helper: generate a human-readable meeting ID like "abc-1234-xyz"
+const genMeetingId = () => {
+    const seg = (n) => Math.random().toString(36).substring(2, 2 + n);
+    return `${seg(3)}-${Math.floor(1000 + Math.random() * 9000)}-${seg(3)}`;
+};
+
+// Active meeting rooms in memory: meetingId → Set<socketId>
+// Used for real-time signaling; ground truth is MongoDB
+const activeMeetingRooms = new Map();
+
+// POST /api/meetings — create instant or scheduled meeting
+app.post('/api/meetings', auth, async (req, res) => {
+    try {
+        const { title, scheduledAt, recurring, passcode, waitingRoom } = req.body;
+        const me = await User.findById(req.user.userId).select('username name').lean();
+        if (!me) return res.status(401).json({ message: 'Not found' });
+
+        let meetingId;
+        let attempts = 0;
+        do { meetingId = genMeetingId(); attempts++; } while (await Meeting.exists({ meetingId }) && attempts < 10);
+
+        const meeting = await Meeting.create({
+            meetingId,
+            title:       title?.trim() || 'My Meeting',
+            hostId:      req.user.userId,
+            hostName:    me.name || me.username,
+            scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
+            recurring:   recurring || 'none',
+            passcode:    passcode?.trim() || '',
+            waitingRoom: waitingRoom !== false,
+            status:      scheduledAt ? 'waiting' : 'active',
+            startedAt:   scheduledAt ? null : new Date(),
+        });
+        res.status(201).json(meetingToDTO(meeting));
+    } catch (err) {
+        console.error('[meetings] create error:', err);
+        res.status(500).json({ message: 'Could not create meeting' });
+    }
+});
+
+// GET /api/meetings — list meetings hosted by or attended by current user
+app.get('/api/meetings', auth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const meetings = await Meeting.find({
+            $or: [{ hostId: userId }, { 'participants.userId': userId }],
+            status: { $ne: 'ended' },
+        }).sort({ createdAt: -1 }).limit(50).lean();
+        res.json(meetings.map(meetingToDTO));
+    } catch (err) {
+        res.status(500).json({ message: 'Could not load meetings' });
+    }
+});
+
+// GET /api/meetings/:id — get a single meeting (public info, used for join-by-ID screen)
+app.get('/api/meetings/:id', auth, async (req, res) => {
+    try {
+        const meeting = await Meeting.findOne({ meetingId: req.params.id }).lean();
+        if (!meeting) return res.status(404).json({ message: 'Meeting not found' });
+        res.json(meetingToDTO(meeting));
+    } catch (err) {
+        res.status(500).json({ message: 'Could not load meeting' });
+    }
+});
+
+// PATCH /api/meetings/:id — update title, lock, chat, waitingRoom (host only)
+app.patch('/api/meetings/:id', auth, async (req, res) => {
+    try {
+        const meeting = await Meeting.findOne({ meetingId: req.params.id });
+        if (!meeting) return res.status(404).json({ message: 'Meeting not found' });
+        if (meeting.hostId !== req.user.userId) return res.status(403).json({ message: 'Host only' });
+        const { title, locked, chatEnabled, waitingRoom, hostOnlyInvite } = req.body;
+        if (title          !== undefined) meeting.title          = title.trim();
+        if (locked         !== undefined) meeting.locked         = !!locked;
+        if (chatEnabled    !== undefined) meeting.chatEnabled    = !!chatEnabled;
+        if (waitingRoom    !== undefined) meeting.waitingRoom    = !!waitingRoom;
+        if (hostOnlyInvite !== undefined) meeting.hostOnlyInvite = !!hostOnlyInvite;
+        await meeting.save();
+        io.to(`meeting:${meeting.meetingId}`).emit('meeting-updated', meetingToDTO(meeting));
+        res.json(meetingToDTO(meeting));
+    } catch (err) {
+        res.status(500).json({ message: 'Could not update meeting' });
+    }
+});
+
+// DELETE /api/meetings/:id — end/delete meeting (host only)
+app.delete('/api/meetings/:id', auth, async (req, res) => {
+    try {
+        const meeting = await Meeting.findOne({ meetingId: req.params.id });
+        if (!meeting) return res.status(404).json({ message: 'Meeting not found' });
+        if (meeting.hostId !== req.user.userId) return res.status(403).json({ message: 'Host only' });
+        meeting.status  = 'ended';
+        meeting.endedAt = new Date();
+        await meeting.save();
+        io.to(`meeting:${meeting.meetingId}`).emit('meeting-ended', { meetingId: meeting.meetingId });
+        res.json({ message: 'Meeting ended' });
+    } catch (err) {
+        res.status(500).json({ message: 'Could not end meeting' });
+    }
+});
+
+// Serialise a Meeting document for the wire
+function meetingToDTO(m) {
+    return {
+        id:           m._id?.toString() || m.id,
+        meetingId:    m.meetingId,
+        title:        m.title,
+        hostId:       m.hostId,
+        hostName:     m.hostName,
+        scheduledAt:  m.scheduledAt,
+        recurring:    m.recurring,
+        status:       m.status,
+        locked:       m.locked,
+        waitingRoom:  m.waitingRoom,
+        chatEnabled:  m.chatEnabled,
+        hostOnlyInvite: m.hostOnlyInvite || false,
+        passcodeRequired: !!m.passcode,
+        participants: (m.participants || []).map((p) => ({
+            userId: p.userId, username: p.username, name: p.name, role: p.role,
+            micMuted: p.micMuted, camOff: p.camOff,
+        })),
+        waitingCount: (m.waitingParticipants || []).length,
+        startedAt:    m.startedAt,
+        createdAt:    m.createdAt,
+    };
+}
+
+// ---- Meeting socket events ----
+// These are registered inside the main io.on('connection') block via a helper
+// so they share the authenticated userId / socket.user already set up there.
+// We attach the handler registrar to the socket in the connection callback below.
+
+function registerMeetingSocketHandlers(socket, userId) {
+
+    // Join or request to join a meeting
+    socket.on('meeting-join', async ({ meetingId, passcode, name }) => {
+        try {
+            const meeting = await Meeting.findOne({ meetingId });
+            if (!meeting) { socket.emit('meeting-error', { meetingId, message: 'Meeting not found.' }); return; }
+            if (meeting.status === 'ended') { socket.emit('meeting-error', { meetingId, message: 'This meeting has ended.' }); return; }
+            if (meeting.locked && meeting.hostId !== userId) { socket.emit('meeting-error', { meetingId, message: 'This meeting is locked.' }); return; }
+            if (meeting.passcode && meeting.passcode !== passcode && meeting.hostId !== userId) {
+                socket.emit('meeting-error', { meetingId, message: 'Incorrect passcode.' }); return;
+            }
+
+            const me = await User.findById(userId).select('username name').lean();
+            const participantName = name?.trim() || me?.name || me?.username || 'Guest';
+
+            // Waiting room — send to waiting list unless host
+            if (meeting.waitingRoom && meeting.hostId !== userId) {
+                const alreadyWaiting = meeting.waitingParticipants.some((p) => p.userId === userId);
+                if (!alreadyWaiting) {
+                    meeting.waitingParticipants.push({ userId, username: me?.username || userId, name: participantName, role: 'attendee' });
+                    await meeting.save();
+                }
+                socket.emit('meeting-waiting', { meetingId, message: 'Waiting for the host to let you in…' });
+                io.to(meeting.hostId).emit('meeting-waiting-update', {
+                    meetingId,
+                    waiting: meeting.waitingParticipants.map((p) => ({ userId: p.userId, name: p.name, username: p.username })),
+                });
+                return;
+            }
+
+            await admitToMeeting(socket, userId, participantName, me?.username || userId, meeting, meeting.hostId === userId ? 'host' : 'attendee');
+        } catch (err) {
+            console.error('[meetings] join error:', err);
+            socket.emit('meeting-error', { meetingId, message: 'Could not join meeting.' });
+        }
+    });
+
+    // Host admits a waiting participant
+    socket.on('meeting-admit', async ({ meetingId, targetUserId }) => {
+        try {
+            const meeting = await Meeting.findOne({ meetingId });
+            if (!meeting || meeting.hostId !== userId) return;
+            const waiting = meeting.waitingParticipants.find((p) => p.userId === targetUserId);
+            if (!waiting) return;
+            meeting.waitingParticipants = meeting.waitingParticipants.filter((p) => p.userId !== targetUserId);
+            await meeting.save();
+
+            // Tell the waiting socket to proceed
+            io.to(targetUserId).emit('meeting-admitted', { meetingId });
+
+            // Also tell the host the waiting list changed
+            io.to(userId).emit('meeting-waiting-update', {
+                meetingId,
+                waiting: meeting.waitingParticipants.map((p) => ({ userId: p.userId, name: p.name, username: p.username })),
+            });
+        } catch (err) { console.error('[meetings] admit error:', err); }
+    });
+
+    // Waiting participant was admitted — now actually join
+    socket.on('meeting-join-admitted', async ({ meetingId }) => {
+        try {
+            const meeting = await Meeting.findOne({ meetingId });
+            if (!meeting || meeting.status === 'ended') return;
+            const me = await User.findById(userId).select('username name').lean();
+            await admitToMeeting(socket, userId, me?.name || me?.username || 'Guest', me?.username || userId, meeting, 'attendee');
+        } catch (err) { console.error('[meetings] join-admitted error:', err); }
+    });
+
+    // Host denies a waiting participant
+    socket.on('meeting-deny', async ({ meetingId, targetUserId }) => {
+        try {
+            const meeting = await Meeting.findOne({ meetingId });
+            if (!meeting || meeting.hostId !== userId) return;
+            meeting.waitingParticipants = meeting.waitingParticipants.filter((p) => p.userId !== targetUserId);
+            await meeting.save();
+            io.to(targetUserId).emit('meeting-denied', { meetingId, message: 'The host did not let you in.' });
+            io.to(userId).emit('meeting-waiting-update', {
+                meetingId,
+                waiting: meeting.waitingParticipants.map((p) => ({ userId: p.userId, name: p.name, username: p.username })),
+            });
+        } catch (err) { console.error('[meetings] deny error:', err); }
+    });
+
+    // Leave meeting
+    socket.on('meeting-leave', async ({ meetingId }) => {
+        try {
+            socket.leave(`meeting:${meetingId}`);
+            const meeting = await Meeting.findOne({ meetingId });
+            if (!meeting) return;
+            meeting.participants = meeting.participants.map((p) =>
+                p.userId === userId ? { ...p, leftAt: new Date() } : p
+            );
+            await meeting.save();
+            io.to(`meeting:${meetingId}`).emit('meeting-participant-left', { meetingId, userId });
+
+            // If host leaves, end meeting
+            if (meeting.hostId === userId) {
+                meeting.status  = 'ended';
+                meeting.endedAt = new Date();
+                await meeting.save();
+                io.to(`meeting:${meetingId}`).emit('meeting-ended', { meetingId });
+            }
+        } catch (err) { console.error('[meetings] leave error:', err); }
+    });
+
+    // Host mutes/unmutes a participant
+    socket.on('meeting-host-mute', async ({ meetingId, targetUserId, mute }) => {
+        try {
+            const meeting = await Meeting.findOne({ meetingId });
+            if (!meeting || meeting.hostId !== userId) return;
+            meeting.participants = meeting.participants.map((p) =>
+                p.userId === targetUserId ? { ...p, micMuted: !!mute } : p
+            );
+            await meeting.save();
+            io.to(`meeting:${meetingId}`).emit('meeting-participant-updated', {
+                meetingId, userId: targetUserId, micMuted: !!mute,
+            });
+            io.to(targetUserId).emit('meeting-muted-by-host', { meetingId, mute });
+        } catch (err) { console.error('[meetings] host-mute error:', err); }
+    });
+
+    // Host mutes ALL participants at once
+    socket.on('meeting-mute-all', async ({ meetingId }) => {
+        try {
+            const meeting = await Meeting.findOne({ meetingId });
+            if (!meeting || meeting.hostId !== userId) return;
+            const otherIds = meeting.participants
+                .filter((p) => p.userId !== userId)
+                .map((p) => p.userId);
+            meeting.participants = meeting.participants.map((p) =>
+                p.userId === userId ? p : { ...p, micMuted: true }
+            );
+            await meeting.save();
+            // Broadcast individual updates + muted-by-host to each participant
+            otherIds.forEach((uid) => {
+                io.to(`meeting:${meetingId}`).emit('meeting-participant-updated', { meetingId, userId: uid, micMuted: true });
+                io.to(uid).emit('meeting-muted-by-host', { meetingId, mute: true });
+            });
+        } catch (err) { console.error('[meetings] mute-all error:', err); }
+    });
+
+    // Host removes a participant
+    socket.on('meeting-remove-participant', async ({ meetingId, targetUserId }) => {
+        try {
+            const meeting = await Meeting.findOne({ meetingId });
+            if (!meeting || meeting.hostId !== userId) return;
+            meeting.participants = meeting.participants.filter((p) => p.userId !== targetUserId);
+            await meeting.save();
+            io.to(targetUserId).emit('meeting-removed', { meetingId });
+            io.to(`meeting:${meetingId}`).emit('meeting-participant-left', { meetingId, userId: targetUserId });
+        } catch (err) { console.error('[meetings] remove-participant error:', err); }
+    });
+
+    // Host locks/unlocks the meeting
+    socket.on('meeting-set-lock', async ({ meetingId, locked }) => {
+        try {
+            const meeting = await Meeting.findOne({ meetingId });
+            if (!meeting || meeting.hostId !== userId) return;
+            meeting.locked = !!locked;
+            await meeting.save();
+            io.to(`meeting:${meetingId}`).emit('meeting-updated', meetingToDTO(meeting));
+        } catch (err) { console.error('[meetings] set-lock error:', err); }
+    });
+
+    // Host toggles "only host can invite participants"
+    socket.on('meeting-set-host-only-invite', async ({ meetingId, hostOnlyInvite }) => {
+        try {
+            const meeting = await Meeting.findOne({ meetingId });
+            if (!meeting || meeting.hostId !== userId) return;
+            meeting.hostOnlyInvite = !!hostOnlyInvite;
+            await meeting.save();
+            io.to(`meeting:${meetingId}`).emit('meeting-updated', meetingToDTO(meeting));
+        } catch (err) { console.error('[meetings] set-host-only-invite error:', err); }
+    });
+
+    // In-meeting chat message
+    socket.on('meeting-chat', async ({ meetingId, message }) => {
+        try {
+            const meeting = await Meeting.findOne({ meetingId, status: { $ne: 'ended' } });
+            if (!meeting || !meeting.chatEnabled) return;
+            const isParticipant = meeting.participants.some((p) => p.userId === userId);
+            if (!isParticipant) return;
+            const me = await User.findById(userId).select('username name').lean();
+            const payload = {
+                meetingId,
+                from:    { userId, username: me?.username, name: me?.name || me?.username },
+                message: String(message).trim().slice(0, 2000),
+                at:      new Date().toISOString(),
+            };
+            io.to(`meeting:${meetingId}`).emit('meeting-chat', payload);
+        } catch (err) { console.error('[meetings] chat error:', err); }
+    });
+
+    // WebRTC mesh signaling for meeting peers (same pattern as group calls)
+    socket.on('meeting-signal', ({ meetingId, targetUserId, data }) => {
+        io.to(targetUserId).emit('meeting-signal', { meetingId, fromUserId: userId, data });
+    });
+
+    // Non-verbal: raise hand
+    socket.on('meeting-raise-hand', ({ meetingId, raised }) => {
+        io.to(`meeting:${meetingId}`).emit('meeting-hand-raised', { meetingId, userId, raised });
+    });
+
+    // Non-verbal: emoji reaction
+    socket.on('meeting-reaction', ({ meetingId, emoji }) => {
+        io.to(`meeting:${meetingId}`).emit('meeting-reaction', { meetingId, userId, emoji });
+    });
+}
+
+// Helper: do the actual room-join + DB write + broadcast
+async function admitToMeeting(socket, userId, name, username, meeting, role) {
+    const alreadyIn = meeting.participants.some((p) => p.userId === userId);
+    if (!alreadyIn) {
+        meeting.participants.push({ userId, username, name, role, joinedAt: new Date() });
+        if (meeting.status === 'waiting') { meeting.status = 'active'; meeting.startedAt = new Date(); }
+        await meeting.save();
+    }
+
+    socket.join(`meeting:${meeting.meetingId}`);
+
+    const others = meeting.participants
+        .filter((p) => p.userId !== userId && !p.leftAt)
+        .map((p) => ({ userId: p.userId, username: p.username, name: p.name, role: p.role, micMuted: p.micMuted, camOff: p.camOff }));
+
+    socket.emit('meeting-joined', {
+        meetingId:    meeting.meetingId,
+        title:        meeting.title,
+        hostId:       meeting.hostId,
+        locked:       meeting.locked,
+        chatEnabled:  meeting.chatEnabled,
+        waitingRoom:  meeting.waitingRoom,
+        hostOnlyInvite: meeting.hostOnlyInvite || false,
+        participants: others,
+        myRole:       role,
+    });
+
+    socket.to(`meeting:${meeting.meetingId}`).emit('meeting-participant-joined', {
+        meetingId: meeting.meetingId,
+        participant: { userId, username, name, role, micMuted: false, camOff: false },
+    });
+}
+
+const PORT = process.env.PORT || 5000;
 server.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
         console.error(`Port ${PORT} in use, trying ${PORT + 1}`);

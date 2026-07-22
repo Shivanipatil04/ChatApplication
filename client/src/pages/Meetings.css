@@ -1,0 +1,800 @@
+/* ================================================================
+   MEETINGS — Panel (list view, schedule, join)
+   ================================================================ */
+.mt-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #f0f2f5;
+  overflow: hidden;
+}
+
+.mt-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px 12px;
+  background: #fff;
+  border-bottom: 1px solid #e9edef;
+  flex-shrink: 0;
+}
+
+.mt-panel-header h2 {
+  font-size: 17px;
+  font-weight: 700;
+  color: #111b21;
+  margin: 0;
+}
+
+.mt-back-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #54656f;
+  display: flex;
+  padding: 6px;
+  border-radius: 50%;
+  transition: background 120ms;
+  flex-shrink: 0;
+}
+.mt-back-btn:hover { background: rgba(0,0,0,0.06); color: #111b21; }
+
+.mt-error {
+  margin: 8px 12px 0;
+  padding: 10px 14px;
+  background: #fee2e2;
+  color: #dc2626;
+  border-radius: 10px;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.mt-notice {
+  margin: 8px 12px 0;
+  padding: 10px 14px;
+  background: #dcfce7;
+  color: #16a34a;
+  border-radius: 10px;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+/* ── Home view ────────────────────────────────────── */
+.mt-home {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 0 20px;
+}
+
+.mt-quick-actions {
+  display: flex;
+  gap: 10px;
+  padding: 4px 14px 16px;
+}
+
+.mt-action-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 8px;
+  border: none;
+  border-radius: 14px;
+  background: #fff;
+  color: #128c7e;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  transition: background 150ms, transform 150ms;
+}
+.mt-action-btn:hover { background: #f0faf8; transform: translateY(-1px); }
+.mt-action-btn.primary { background: #128c7e; color: white; }
+.mt-action-btn.primary:hover { background: #0e7268; }
+
+.mt-section-label {
+  padding: 6px 16px 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #8696a0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.mt-empty {
+  padding: 16px;
+  color: #8696a0;
+  font-size: 13px;
+  text-align: center;
+}
+
+.mt-meeting-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: #fff;
+  border-bottom: 1px solid #f0f2f5;
+  transition: background 120ms;
+}
+.mt-meeting-row:hover { background: #f5f6f6; }
+
+.mt-meeting-info {
+  flex: 1;
+  min-width: 0;
+}
+.mt-meeting-info strong {
+  display: block;
+  font-size: 14px;
+  color: #111b21;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mt-meeting-meta {
+  font-size: 12px;
+  color: #8696a0;
+}
+
+.mt-meeting-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.mt-copy-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #8696a0;
+  display: flex;
+  padding: 5px;
+  border-radius: 50%;
+  transition: background 120ms;
+}
+.mt-copy-btn:hover { background: rgba(0,0,0,0.06); color: #128c7e; }
+
+.mt-start-btn {
+  padding: 6px 16px;
+  background: #128c7e;
+  color: white;
+  border: none;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 150ms;
+}
+.mt-start-btn:hover { background: #0e7268; }
+
+/* ── Form (schedule / join) ───────────────────────── */
+.mt-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.mt-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #54656f;
+}
+
+.mt-form input,
+.mt-form select,
+.mt-form textarea {
+  padding: 10px 12px;
+  border: 1.5px solid #e9edef;
+  border-radius: 10px;
+  font-size: 14px;
+  background: #fff;
+  color: #111b21;
+  outline: none;
+  transition: border-color 150ms;
+  font-family: inherit;
+}.mt-form input:focus,
+.mt-form select:focus { border-color: #128c7e; }
+
+.mt-checkbox-label {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 10px !important;
+  font-size: 14px !important;
+  color: #111b21 !important;
+  cursor: pointer;
+}
+.mt-checkbox-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #128c7e;
+  cursor: pointer;
+  padding: 0;
+  border: none;
+}
+
+.mt-submit-btn {
+  padding: 12px;
+  background: #128c7e;
+  color: white;
+  border: none;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 150ms;
+  margin-top: 4px;
+}
+.mt-submit-btn:hover { background: #0e7268; }
+
+.mt-waiting-text {
+  font-size: 13px;
+  color: #128c7e;
+  font-style: italic;
+  margin: 0;
+}
+
+/* ================================================================
+   MEETINGS — In-meeting shell
+   ================================================================ */
+.mt-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 11500;
+  display: flex;
+  flex-direction: column;
+  background: #1a1f2e;
+  color: white;
+  overflow: hidden;
+}
+
+/* ── Top bar ─────────────────────────────────────── */
+.mt-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 18px;
+  background: rgba(0,0,0,0.35);
+  flex-shrink: 0;
+  gap: 12px;
+}
+
+.mt-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.mt-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: white;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mt-id {
+  font-size: 12px;
+  color: rgba(255,255,255,0.5);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: color 120ms;
+  white-space: nowrap;
+}
+.mt-id:hover { color: rgba(255,255,255,0.85); }
+
+.mt-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.mt-icon-btn {
+  background: rgba(255,255,255,0.1);
+  border: none;
+  border-radius: 10px;
+  padding: 8px 12px;
+  color: rgba(255,255,255,0.8);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 150ms;
+}
+.mt-icon-btn:hover { background: rgba(255,255,255,0.18); }
+.mt-icon-btn.active { background: #128c7e; color: white; }
+
+/* ── Waiting room banner ─────────────────────────── */
+.mt-waiting-banner {
+  background: #075e54;
+  padding: 10px 18px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.mt-waiting-person {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255,255,255,0.12);
+  border-radius: 20px;
+  padding: 4px 10px;
+}
+
+.mt-admit-btn {
+  background: #25d366;
+  border: none;
+  border-radius: 12px;
+  padding: 3px 10px;
+  color: white;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.mt-deny-btn {
+  background: rgba(255,255,255,0.15);
+  border: none;
+  border-radius: 12px;
+  padding: 3px 10px;
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* ── Reaction burst ──────────────────────────────── */
+.mt-reaction-burst {
+  position: absolute;
+  bottom: 120px;
+  right: 60px;
+  font-size: 52px;
+  pointer-events: none;
+  animation: reaction-burst 2s ease forwards;
+  z-index: 100;
+}
+
+@keyframes reaction-burst {
+  0%   { opacity: 1; transform: scale(0.5) translateY(0); }
+  60%  { opacity: 1; transform: scale(1.2) translateY(-40px); }
+  100% { opacity: 0; transform: scale(1)   translateY(-80px); }
+}
+
+/* ── Main area ───────────────────────────────────── */
+.mt-main {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  position: relative;
+}
+
+/* ── Video grid ──────────────────────────────────── */
+.mt-grid {
+  flex: 1;
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  align-content: center;
+  overflow: hidden;
+}
+.mt-grid-1 { grid-template-columns: 1fr; }
+.mt-grid-2 { grid-template-columns: repeat(2, 1fr); }
+.mt-grid-3 { grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(2, 1fr); }
+.mt-grid-4 { grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(2, 1fr); }
+
+.mt-tile {
+  position: relative;
+  background: #2a2f3e;
+  border-radius: 14px;
+  overflow: hidden;
+  aspect-ratio: 16/9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mt-tile-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.mt-tile-avatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #128c7e, #25d366);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  font-weight: 700;
+  color: white;
+}
+
+.mt-tile-name {
+  position: absolute;
+  bottom: 8px;
+  left: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: white;
+  background: rgba(0,0,0,0.5);
+  padding: 3px 8px;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.mt-tile-muted  { color: #f87171; }
+.mt-tile-host   { color: #fbbf24; }
+
+/* ── Side panel (participants + chat) ─────────────── */
+.mt-side-panel {
+  width: 300px;
+  background: #242836;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  border-left: 1px solid rgba(255,255,255,0.07);
+}
+
+.mt-side-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  font-size: 14px;
+  font-weight: 700;
+  color: white;
+  flex-shrink: 0;
+}
+.mt-side-header button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: rgba(255,255,255,0.55);
+  display: flex;
+  padding: 4px;
+  border-radius: 50%;
+  transition: background 120ms;
+}
+.mt-side-header button:hover { background: rgba(255,255,255,0.1); color: white; }
+
+.mt-side-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+/* ── Participant rows ─────────────────────────────── */
+.mt-participant-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  transition: background 120ms;
+}
+.mt-participant-row:hover { background: rgba(255,255,255,0.05); }
+
+.mt-participant-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #128c7e, #25d366);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  color: white;
+  flex-shrink: 0;
+}
+
+.mt-participant-name {
+  flex: 1;
+  font-size: 13.5px;
+  color: #e9edef;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mt-icon-muted { color: #f87171; }
+.mt-icon-host  { color: #fbbf24; }
+
+.mt-host-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.mt-host-actions button {
+  background: rgba(255,255,255,0.1);
+  border: none;
+  border-radius: 8px;
+  padding: 5px;
+  cursor: pointer;
+  color: rgba(255,255,255,0.7);
+  display: flex;
+  transition: background 120ms;
+}
+.mt-host-actions button:hover { background: rgba(255,0,0,0.3); color: white; }
+
+/* ── In-meeting chat ─────────────────────────────── */
+.mt-chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mt-chat-empty {
+  color: rgba(255,255,255,0.35);
+  font-size: 13px;
+  text-align: center;
+  margin-top: 20px;
+}
+
+.mt-chat-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 88%;
+  align-self: flex-start;
+}
+.mt-chat-msg.me { align-self: flex-end; }
+
+.mt-chat-sender {
+  font-size: 11px;
+  color: rgba(255,255,255,0.45);
+  padding: 0 4px;
+}
+.mt-chat-msg.me .mt-chat-sender { text-align: right; }
+
+.mt-chat-text {
+  background: rgba(255,255,255,0.1);
+  border-radius: 12px;
+  padding: 8px 12px;
+  font-size: 13.5px;
+  color: white;
+  word-break: break-word;
+}
+.mt-chat-msg.me .mt-chat-text {
+  background: #128c7e;
+  border-radius: 12px 12px 2px 12px;
+}
+
+.mt-chat-form {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid rgba(255,255,255,0.07);
+  flex-shrink: 0;
+}
+.mt-chat-form input {
+  flex: 1;
+  background: rgba(255,255,255,0.1);
+  border: none;
+  border-radius: 20px;
+  padding: 9px 14px;
+  font-size: 13.5px;
+  color: white;
+  outline: none;
+}
+.mt-chat-form input::placeholder { color: rgba(255,255,255,0.35); }
+.mt-chat-form button {
+  background: #128c7e;
+  border: none;
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  cursor: pointer;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 150ms;
+  flex-shrink: 0;
+}
+.mt-chat-form button:hover:not(:disabled) { background: #0e7268; }
+.mt-chat-form button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Controls bar ────────────────────────────────── */
+.mt-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 14px 20px 18px;
+  background: rgba(0,0,0,0.4);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.mt-ctrl-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  background: rgba(255,255,255,0.1);
+  border: none;
+  border-radius: 14px;
+  padding: 12px 16px;
+  cursor: pointer;
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 64px;
+  transition: background 150ms, transform 150ms;
+}
+.mt-ctrl-btn:hover:not(:disabled)  { background: rgba(255,255,255,0.2); transform: translateY(-1px); }
+.mt-ctrl-btn.off    { background: rgba(255,255,255,0.28); }
+.mt-ctrl-btn.active { background: #128c7e; }
+.mt-end-btn { background: #ef4444 !important; }
+.mt-end-btn:hover { background: #dc2626 !important; }
+
+/* ── Reactions popup ─────────────────────────────── */
+.mt-reactions-wrap {
+  position: relative;
+}
+.mt-reactions-wrap:hover .mt-reactions-popup,
+.mt-reactions-wrap:focus-within .mt-reactions-popup {
+  display: flex;
+}
+
+.mt-reactions-popup {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #2a2f3e;
+  border-radius: 40px;
+  padding: 8px 12px;
+  gap: 6px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+  white-space: nowrap;
+  z-index: 100;
+}
+.mt-reactions-popup button {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  border-radius: 50%;
+  padding: 4px;
+  transition: transform 150ms;
+  line-height: 1;
+}
+.mt-reactions-popup button:hover { transform: scale(1.3); }
+
+/* ── Waiting overlay (while in waiting room) ─────── */
+.mt-waiting-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+
+.mt-waiting-card {
+  background: #242836;
+  border-radius: 20px;
+  padding: 36px 40px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.4);
+}
+
+.mt-waiting-spinner {
+  width: 44px;
+  height: 44px;
+  border: 4px solid rgba(255,255,255,0.15);
+  border-top-color: #25d366;
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.mt-waiting-card p {
+  font-size: 15px;
+  color: rgba(255,255,255,0.8);
+  margin: 0;
+}
+
+.mt-waiting-card button {
+  padding: 9px 24px;
+  background: rgba(255,255,255,0.1);
+  border: none;
+  border-radius: 20px;
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 150ms;
+}
+.mt-waiting-card button:hover { background: rgba(255,255,255,0.2); }
+
+/* ── Responsive ──────────────────────────────────── */
+@media (max-width: 640px) {
+  .mt-side-panel { width: 100%; position: absolute; inset: 0; z-index: 50; }
+  .mt-ctrl-btn { min-width: 52px; padding: 10px 10px; font-size: 10px; }
+  .mt-controls { gap: 8px; padding: 10px 10px 14px; }
+  .mt-grid-3, .mt-grid-4 { grid-template-columns: 1fr 1fr; }
+}
+
+/* ================================================================
+   ACTIVE SPEAKER GLOW — Meetings tiles
+   ================================================================ */
+.mt-tile.speaking {
+  outline: 3px solid #25d366;
+  outline-offset: -3px;
+  box-shadow: 0 0 0 3px rgba(37, 211, 102, 0.35), 0 0 18px rgba(37, 211, 102, 0.25);
+  transition: outline 120ms, box-shadow 120ms;
+}
+
+/* ================================================================
+   HOST-ONLY INVITE — tooltip hint on the toggle button
+   ================================================================ */
+.mt-icon-btn[title]:hover::after {
+  content: attr(title);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  background: rgba(0,0,0,0.75);
+  color: white;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: 8px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 999;
+}
+
+/* ── Mute All button ─────────────────────────────── */
+.mt-mute-all-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.8);
+  cursor: pointer;
+  transition: background 150ms;
+  white-space: nowrap;
+}
+.mt-mute-all-btn:hover { background: rgba(255,255,255,0.18); color: white; }

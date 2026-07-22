@@ -2,17 +2,26 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 const RTC_CONFIGURATION = {
   iceServers: [
+    // Multiple STUN servers for redundancy
     { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    // Metered free TURN (more reliable endpoints)
     {
       urls: [
         'turn:openrelay.metered.ca:80',
         'turn:openrelay.metered.ca:443',
+        'turns:openrelay.metered.ca:443', // TLS — works through strict firewalls
         'turn:openrelay.metered.ca:443?transport=tcp',
       ],
       username: 'openrelayproject',
       credential: 'openrelayproject',
     },
   ],
+  iceCandidatePoolSize: 10,   // pre-gather candidates before call starts
+  bundlePolicy: 'max-bundle', // bundle audio+video on one transport — fewer ports needed
+  rtcpMuxPolicy: 'require',   // multiplex RTCP with RTP — reduces open ports
 };
 
 /**
@@ -88,23 +97,56 @@ export function useDirectCall(socket, user, { onCallFinished } = {}) {
   const createPeerConnection = useCallback((targetUserId, stream) => {
     const peer = new RTCPeerConnection(RTC_CONFIGURATION);
     callTargetRef.current = targetUserId;
-    stream.getTracks().forEach((track) => peer.addTrack(track, stream));
+
+    const tracks = stream.getTracks();
+    console.log('[webrtc] createPeerConnection — tracks being added:', tracks.map((t) => `${t.kind} (enabled=${t.enabled}, muted=${t.muted})`));
+    tracks.forEach((track) => peer.addTrack(track, stream));
 
     peer.onicecandidate = ({ candidate }) => {
-      if (candidate) socket?.emit('ice-candidate', { targetUserId, candidate });
+      if (candidate) {
+        console.log('[webrtc] local ICE candidate:', candidate.type, candidate.protocol, candidate.address);
+        socket?.emit('ice-candidate', { targetUserId, candidate });
+      } else {
+        console.log('[webrtc] ICE gathering complete');
+      }
     };
 
     peer.oniceconnectionstatechange = () => {
+      console.log('[webrtc] iceConnectionState →', peer.iceConnectionState);
       setConnectionState(peer.iceConnectionState);
       if (peer.iceConnectionState === 'connected' || peer.iceConnectionState === 'completed') {
-        reconnectAttemptedRef.current = false; // healthy again — allow future reconnect attempts
+        reconnectAttemptedRef.current = false;
+        console.log('[webrtc] ✅ ICE connected — media should be flowing');
       }
-      if (peer.iceConnectionState === 'failed') attemptReconnect();
+      if (peer.iceConnectionState === 'failed') {
+        console.warn('[webrtc] ❌ ICE failed — attempting restart');
+        attemptReconnect();
+      }
+      if (peer.iceConnectionState === 'disconnected') {
+        console.warn('[webrtc] ⚠️ ICE disconnected — may recover automatically');
+      }
+    };
+
+    peer.onicegatheringstatechange = () => {
+      console.log('[webrtc] iceGatheringState →', peer.iceGatheringState);
+    };
+
+    peer.onsignalingstatechange = () => {
+      console.log('[webrtc] signalingState →', peer.signalingState);
     };
 
     peer.ontrack = (event) => {
+      console.log('[webrtc] ✅ ontrack fired — kind:', event.track.kind, '| streams:', event.streams.length, '| track enabled:', event.track.enabled, '| track muted:', event.track.muted);
       const remote = event.streams && event.streams[0];
-      if (remote) setRemoteStream(remote);
+      if (remote) {
+        console.log('[webrtc] remote stream tracks:', remote.getTracks().map((t) => `${t.kind} enabled=${t.enabled}`));
+        setRemoteStream(remote);
+      } else {
+        console.warn('[webrtc] ontrack fired but event.streams[0] is undefined — attaching track directly');
+        // Fallback: build a stream from the track directly
+        const fallbackStream = new MediaStream([event.track]);
+        setRemoteStream(fallbackStream);
+      }
     };
 
     peerConnectionRef.current = peer;
@@ -124,16 +166,21 @@ export function useDirectCall(socket, user, { onCallFinished } = {}) {
     if (!target) return;
     try {
       const constraints = audioOnly ? { video: false, audio: true } : { video: true, audio: true };
+      console.log('[webrtc] startCall — requesting getUserMedia', constraints);
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      console.log('[webrtc] getUserMedia granted — tracks:', stream.getTracks().map((t) => `${t.kind} enabled=${t.enabled}`));
       cameraTrackRef.current = audioOnly ? null : (stream.getVideoTracks()[0] || null);
       localStreamRef.current = stream;
       setLocalStream(stream);
       setActiveCall({ ...target, audioOnly });
       const peer = createPeerConnection(target.id, stream);
       const offer = await peer.createOffer();
+      console.log('[webrtc] offer SDP (first 300 chars):', offer.sdp?.substring(0, 300));
       await peer.setLocalDescription(offer);
       socket?.emit('call-user', { targetUserId: target.id, offer, callType: audioOnly ? 'audio' : 'video' });
-    } catch {
+      console.log('[webrtc] call-user emitted to', target.id);
+    } catch (err) {
+      console.error('[webrtc] startCall error:', err);
       closeCall(false);
       throw new Error(audioOnly
         ? 'Microphone access is required to start a voice call.'
@@ -159,19 +206,25 @@ export function useDirectCall(socket, user, { onCallFinished } = {}) {
     const audioOnly = incomingCall.callType === 'audio';
     try {
       const constraints = audioOnly ? { video: false, audio: true } : { video: true, audio: true };
+      console.log('[webrtc] acceptCall — requesting getUserMedia', constraints);
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      console.log('[webrtc] getUserMedia granted — tracks:', stream.getTracks().map((t) => `${t.kind} enabled=${t.enabled}`));
       cameraTrackRef.current = audioOnly ? null : (stream.getVideoTracks()[0] || null);
       localStreamRef.current = stream;
       setLocalStream(stream);
       setActiveCall({ ...incomingCall.from, audioOnly });
       const peer = createPeerConnection(incomingCall.from.id, stream);
       await peer.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
+      console.log('[webrtc] remote description set from offer');
       await addQueuedCandidates();
       const answer = await peer.createAnswer();
+      console.log('[webrtc] answer SDP (first 300 chars):', answer.sdp?.substring(0, 300));
       await peer.setLocalDescription(answer);
       socket?.emit('call-answer', { callerId: incomingCall.from.id, answer });
+      console.log('[webrtc] call-answer emitted to', callerId);
       setIncomingCall(null);
-    } catch {
+    } catch (err) {
+      console.error('[webrtc] acceptCall error:', err);
       socket?.emit('call-decline', { callerId });
       closeCall(false);
       setIncomingCall(null);
@@ -259,7 +312,9 @@ export function useDirectCall(socket, user, { onCallFinished } = {}) {
       try {
         if (peerConnectionRef.current?.remoteDescription) {
           await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+          console.log('[webrtc] remote ICE candidate added:', candidate.type, candidate.protocol);
         } else {
+          console.log('[webrtc] queuing ICE candidate (no remote description yet)');
           queuedCandidatesRef.current.push(candidate);
         }
       } catch (err) {

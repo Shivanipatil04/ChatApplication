@@ -1,4 +1,4 @@
-/* ===== ThreeDotMenu — polished WhatsApp-style dropdown ===== */
+/* ===== ThreeDotMenu ===== */
 
 .ww-three-dot-menu {
   position: relative;
@@ -18,86 +18,63 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background 140ms ease, color 140ms ease;
+  transition: background 140ms, color 140ms;
   flex-shrink: 0;
 }
+.ww-three-dot-button:hover           { background: rgba(0,0,0,0.06); color: #111b21; }
+.ww-three-dot-button[aria-expanded="true"] { background: rgba(0,0,0,0.08); color: #111b21; }
 
-.ww-three-dot-button:hover {
-  background: rgba(0, 0, 0, 0.06);
-  color: #111b21;
-}
-
-.ww-three-dot-button[aria-expanded="true"] {
-  background: rgba(0, 0, 0, 0.08);
-  color: #111b21;
-}
-
-/* On dark/purple mobile header */
+/* White button when sitting on a coloured mobile header */
 @media (max-width: 700px) {
   .ww-three-dot-button            { color: rgba(255,255,255,0.9); }
   .ww-three-dot-button:hover      { background: rgba(255,255,255,0.15); color: #fff; }
   .ww-three-dot-button[aria-expanded="true"] { background: rgba(255,255,255,0.15); color: #fff; }
 }
 
-/* ---- Dropdown popup ---- */
+/* ---- Popup — rendered in document.body via portal, immune to ancestor styles ---- */
 .ww-three-dot-popup {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 4px);
-  min-width: 240px;
-  background: #ffffff;
+  /* position/top/left/width come from inline style (set by useLayoutEffect) */
+  background: #ffffff !important;
+  color: #111b21 !important;
   border-radius: 12px;
-  box-shadow:
-    0 2px 8px rgba(0,0,0,0.08),
-    0 8px 28px rgba(0,0,0,0.14);
-  border: 1px solid rgba(0,0,0,0.06);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.10), 0 8px 28px rgba(0,0,0,0.16);
+  border: 1px solid rgba(0,0,0,0.07);
   overflow: hidden;
-  z-index: 9999;
-  transform-origin: top right;
-  animation: tdm-in 160ms cubic-bezier(0.2, 0, 0, 1.2);
+  z-index: 99999;
+  animation: tdm-in 150ms cubic-bezier(0.2, 0, 0, 1.2);
   padding: 4px 0;
 }
 
-.ww-three-dot-popup.left {
-  right: auto;
-  left: 0;
-  transform-origin: top left;
-}
-
 @keyframes tdm-in {
-  from { opacity: 0; transform: translateY(-8px) scale(0.96); }
-  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
 }
 
-/* ---- Menu items ---- */
+/* ---- Items ---- */
 .ww-three-dot-item {
   width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0;
   padding: 0 16px;
-  height: 46px;
+  height: 48px;
   background: transparent;
   border: none;
-  color: #111b21;
   cursor: pointer;
+  text-align: left;
+  transition: background 100ms;
+  /* Explicit colors — never inherited */
+  color: #111b21 !important;
   font-size: 14px;
   font-weight: 400;
-  text-align: left;
-  transition: background 100ms ease;
+  font-family: inherit;
 }
+.ww-three-dot-item:hover:not(:disabled)  { background: #f5f6f6; }
+.ww-three-dot-item:active:not(:disabled) { background: #ebedf0; }
+.ww-three-dot-item:disabled              { opacity: 0.45; cursor: not-allowed; }
 
-.ww-three-dot-item:hover:not(:disabled) {
-  background: #f5f6f6;
-}
-
-.ww-three-dot-item:active:not(:disabled) {
-  background: #ebedf0;
-}
-
-/* Left side: icon + label together */
-.ww-three-dot-item-left {
+/* Left side: icon + label */
+.ww-tdm-left {
   display: flex;
   align-items: center;
   gap: 14px;
@@ -105,72 +82,65 @@
   min-width: 0;
 }
 
-/* Icon wrapper — consistent sizing + subtle color */
-.ww-three-dot-icon-wrap {
+.ww-tdm-icon {
   width: 20px;
   height: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #54656f;
+  color: #54656f !important;
   flex-shrink: 0;
 }
 
-.ww-three-dot-item.danger {
-  color: #e53e3e;
+.ww-tdm-label {
+  /* Explicit — can never be white-on-white from a parent header */
+  color: #111b21 !important;
+  font-size: 14px;
+  font-weight: 400;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.ww-three-dot-item.danger .ww-three-dot-icon-wrap {
-  color: #e53e3e;
-}
+/* Danger (Logout) */
+.ww-three-dot-item.danger              { color: #e53e3e !important; }
+.ww-three-dot-item.danger .ww-tdm-icon  { color: #e53e3e !important; }
+.ww-three-dot-item.danger .ww-tdm-label { color: #e53e3e !important; }
+.ww-three-dot-item.danger:hover:not(:disabled) { background: #fff5f5; }
 
-.ww-three-dot-item.danger:hover:not(:disabled) {
-  background: #fff5f5;
-}
+/* Active (e.g. App Lock On) */
+.ww-three-dot-item.active              { color: #4f46e5 !important; }
+.ww-three-dot-item.active .ww-tdm-icon  { color: #4f46e5 !important; }
+.ww-three-dot-item.active .ww-tdm-label { color: #4f46e5 !important; font-weight: 600; }
 
-/* Active state (e.g. App Lock · On) */
-.ww-three-dot-item.active .ww-three-dot-icon-wrap {
-  color: #4f46e5;
-}
-
-.ww-three-dot-item.active {
-  color: #4f46e5;
-  font-weight: 500;
-}
-
-/* Disabled items */
-.ww-three-dot-item:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-/* "Coming soon" hint */
-.ww-three-dot-hint {
+/* Hint (Coming soon) */
+.ww-tdm-hint {
   font-size: 11px;
   color: #aab4be;
   flex-shrink: 0;
   font-style: italic;
 }
 
-/* ---- Separators ---- */
+/* Separators */
 .ww-three-dot-sep {
   height: 1px;
   background: #f0f2f5;
   margin: 3px 0;
 }
 
-/* ---- Touch / small screens ---- */
-@media (max-width: 420px) {
-  .ww-three-dot-popup {
-    min-width: 200px;
-    border-radius: 10px;
-  }
-  .ww-three-dot-item {
-    height: 44px;
-    font-size: 13.5px;
-    padding: 0 14px;
-  }
-  .ww-three-dot-item-left {
-    gap: 12px;
-  }
+/* ---- Dark mode ---- */
+.ww-dark .ww-three-dot-popup {
+  background: #233138 !important;
+  color: #e9edef !important;
+  border-color: #2a3942;
 }
+.ww-dark .ww-three-dot-item             { color: #e9edef !important; }
+.ww-dark .ww-three-dot-item:hover:not(:disabled) { background: rgba(255,255,255,0.06); }
+.ww-dark .ww-tdm-label                  { color: #e9edef !important; }
+.ww-dark .ww-tdm-icon                   { color: #aebac1 !important; }
+.ww-dark .ww-three-dot-sep              { background: #2a3942; }
+.ww-dark .ww-three-dot-item.danger              { color: #f87171 !important; }
+.ww-dark .ww-three-dot-item.danger .ww-tdm-label { color: #f87171 !important; }
+.ww-dark .ww-three-dot-item.danger .ww-tdm-icon  { color: #f87171 !important; }
+.ww-dark .ww-three-dot-item.active .ww-tdm-label { color: #818cf8 !important; }
+.ww-dark .ww-three-dot-item.active .ww-tdm-icon  { color: #818cf8 !important; }

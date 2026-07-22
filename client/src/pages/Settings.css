@@ -147,7 +147,7 @@
 .settings-field textarea {
   padding: 12px 16px;
   border: 2px solid #e5e7eb;
-  border-radius: 12px;
+  border-radius: 10px;
   font-size: 15px;
   font-family: 'Inter', sans-serif;
   transition: border-color 0.2s, box-shadow 0.2s;

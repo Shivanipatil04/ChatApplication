@@ -33,6 +33,7 @@ export function useGroupCall(socket, user, { onCallFinished, onError } = {}) {
   const [isGroupMicMuted, setIsGroupMicMuted] = useState(false);
   const [isGroupCameraOff, setIsGroupCameraOff] = useState(false);
   const [isGroupScreenSharing, setIsGroupScreenSharing] = useState(false);
+  const [recentlyLeftCall, setRecentlyLeftCall] = useState(null); // { callId, groupId } — drives the rejoin banner
 
   const groupPeersRef = useRef({}); // remoteUserId -> RTCPeerConnection
   const groupCallIdRef = useRef(null);
@@ -178,10 +179,33 @@ export function useGroupCall(socket, user, { onCallFinished, onError } = {}) {
   }, [groupCallInvite, socket]);
 
   const leaveGroupCall = useCallback(() => {
-    if (groupCallIdRef.current) socket?.emit('group-call-leave', { callId: groupCallIdRef.current });
+    const callId = groupCallIdRef.current;
+    const currentCall = groupCall; // capture before teardown clears it
+    if (callId) socket?.emit('group-call-leave', { callId });
     teardownGroupCall();
+    // Store what we just left so the rejoin banner can appear
+    if (currentCall) setRecentlyLeftCall(currentCall);
     onCallFinished?.();
-  }, [socket, teardownGroupCall, onCallFinished]);
+  }, [socket, teardownGroupCall, onCallFinished, groupCall]);
+
+  // Rejoin a call the user previously left (server must still have it active)
+  const rejoinGroupCall = useCallback(async () => {
+    if (!recentlyLeftCall) return;
+    const { callId, groupId } = recentlyLeftCall;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      cameraTrackRef.current = stream.getVideoTracks()[0] || null;
+      localGroupStreamRef.current = stream;
+      setLocalGroupStream(stream);
+      groupCallIdRef.current = callId;
+      setGroupCall({ callId, groupId });
+      setGroupCallParticipants([]);
+      setRecentlyLeftCall(null); // clear banner
+      socket?.emit('group-call-rejoin', { callId });
+    } catch {
+      onError?.('Camera or microphone access is required to rejoin.');
+    }
+  }, [recentlyLeftCall, socket, onError]);
 
   // Invite more people into a call that's already running — the server just expands the
   // invite set on the existing call; new joiners follow the normal join flow below.
@@ -281,6 +305,21 @@ export function useGroupCall(socket, user, { onCallFinished, onError } = {}) {
       setGroupCallParticipants((previous) => previous.filter((p) => p.userId !== leftId));
     };
 
+    // Server tells us the call we left is still running — keep recentlyLeftCall valid
+    const handleStillActive = ({ callId, groupId }) => {
+      setRecentlyLeftCall((prev) => (prev?.callId === callId ? prev : { callId, groupId }));
+    };
+
+    // Server tells us the call ended — dismiss the rejoin banner
+    const handleEndedInGroup = ({ callId }) => {
+      setRecentlyLeftCall((prev) => (prev?.callId === callId ? null : prev));
+    };
+
+    // Response to group-call-check-active
+    const handleActiveStatus = ({ callId, alive }) => {
+      if (!alive) setRecentlyLeftCall((prev) => (prev?.callId === callId ? null : prev));
+    };
+
     const handleSignal = async ({ callId, fromUserId, data }) => {
       if (callId !== groupCallIdRef.current) return;
       const peer = ensureGroupPeerConnection(fromUserId);
@@ -310,6 +349,9 @@ export function useGroupCall(socket, user, { onCallFinished, onError } = {}) {
     socket.on('group-call-participant-joined', handleParticipantJoined);
     socket.on('group-call-participant-left', handleParticipantLeft);
     socket.on('group-call-signal', handleSignal);
+    socket.on('group-call-still-active', handleStillActive);
+    socket.on('group-call-ended-in-group', handleEndedInGroup);
+    socket.on('group-call-active-status', handleActiveStatus);
 
     return () => {
       socket.off('group-call-invite', handleInvite);
@@ -318,6 +360,9 @@ export function useGroupCall(socket, user, { onCallFinished, onError } = {}) {
       socket.off('group-call-participant-joined', handleParticipantJoined);
       socket.off('group-call-participant-left', handleParticipantLeft);
       socket.off('group-call-signal', handleSignal);
+      socket.off('group-call-still-active', handleStillActive);
+      socket.off('group-call-ended-in-group', handleEndedInGroup);
+      socket.off('group-call-active-status', handleActiveStatus);
     };
   }, [socket, user.id, ensureGroupPeerConnection, connectToGroupParticipant, teardownGroupCall, onError]);
 
@@ -326,7 +371,9 @@ export function useGroupCall(socket, user, { onCallFinished, onError } = {}) {
   return {
     groupCallInvite, groupCall, groupCallParticipants, localGroupStream,
     isGroupMicMuted, isGroupCameraOff, isGroupScreenSharing,
-    startGroupCall, acceptGroupCallInvite, declineGroupCallInvite, leaveGroupCall,
+    recentlyLeftCall,
+    startGroupCall, acceptGroupCallInvite, declineGroupCallInvite,
+    leaveGroupCall, rejoinGroupCall,
     inviteMoreToGroupCall, toggleGroupMic, toggleGroupCamera, toggleGroupScreenShare,
   };
 }

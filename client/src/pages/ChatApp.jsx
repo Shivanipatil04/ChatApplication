@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { API_URL, api } from '../config/api'
 import { useDirectCall } from '../hooks/useDirectCall'
 import { useGroupCall } from '../hooks/useGroupCall'
+import { useSpeaking } from '../hooks/useSpeaking'
 import ThreeDotMenu from '../components/ThreeDotMenu'
 import {
   Video, Search, MoreVertical, Paperclip, Send, X, MessageSquarePlus,
@@ -12,9 +13,10 @@ import {
   User as UserIcon, Phone, PhoneIncoming, PhoneOutgoing, PhoneMissed,
   Trash2, Users, Link2, Share2, Info, StopCircle, Forward, Ban, ShieldCheck,
   MessageCircle, Clock, Palette, Download, Flag, Star, Bell, BellOff, Lock,
-  UserPlus, Pencil, Eye, MicOff, VideoOff, CircleDot, Settings2,
+  UserPlus, Pencil, Eye, MicOff, VideoOff, CircleDot, Settings2, CalendarDays,
 } from 'lucide-react'
 import './ChatApp.css'
+import Meetings from './Meetings'
 
 const MAX_GROUP_CALL_PARTICIPANTS = 4;
 const THEME_COLORS = ['#e0e7ff', '#fde68a', '#bbf7d0', '#fecaca', '#fbcfe8', '#bae6fd', '#ddd6fe', '#fed7aa'];
@@ -79,7 +81,7 @@ const initialOf = (name = '') => name.trim().charAt(0).toUpperCase() || '?';
 const chatKeyFor = (type, id) => (type && id ? `${type}-${id}` : null);
 
 // ---- Self profile edit panel ----
-const SelfProfilePanel = ({ authorization }) => {
+const SelfProfilePanel = ({ authorization, onProfileSaved }) => {
   const [profile, setProfile] = useState({ name: '', username: '', email: '', phone: '', bio: '', avatar: '' });
   const [avatarPreview, setAvatarPreview] = useState('');
   const [loading, setLoading] = useState(false);
@@ -110,7 +112,9 @@ const SelfProfilePanel = ({ authorization }) => {
       setProfile(data);
       setAvatarPreview(data.avatar || '');
       const cached = JSON.parse(localStorage.getItem('chatUser') || '{}');
-      localStorage.setItem('chatUser', JSON.stringify({ ...cached, name: data.name, avatar: data.avatar }));
+      const updated = { ...cached, name: data.name, avatar: data.avatar };
+      localStorage.setItem('chatUser', JSON.stringify(updated));
+      onProfileSaved?.(updated);
       setMsg('Profile saved!');
     } catch (error) {
       setErr(error.response?.data?.message || 'Could not save profile.');
@@ -149,7 +153,7 @@ const SelfProfilePanel = ({ authorization }) => {
 };
 
 const ChatApp = () => {
-  const user = JSON.parse(localStorage.getItem('chatUser') || '{}');
+  const [user, setUser] = useState(() => JSON.parse(localStorage.getItem('chatUser') || '{}'));
   const token = localStorage.getItem('chatToken');
   const authorization = useMemo(() => ({ headers: { Authorization: `Bearer ${token}` } }), [token]);
 
@@ -247,6 +251,7 @@ const ChatApp = () => {
   const [infoPanel, setInfoPanel] = useState(null);
   const [activeTab, setActiveTab] = useState('chats');
   const [showCallsPanel, setShowCallsPanel] = useState(false);
+  const [showMeetings, setShowMeetings] = useState(false);
 
   // ---- Status ----
   const [statusList, setStatusList] = useState([]);        // contacts' statuses
@@ -254,6 +259,9 @@ const ChatApp = () => {
   const [viewingStatus, setViewingStatus] = useState(null); // { userId, items[], index }
   const [newStatusText, setNewStatusText] = useState('');
   const [showAddStatus, setShowAddStatus] = useState(false);
+  const [showViewers, setShowViewers] = useState(null); // status item id whose viewers to show
+  const [viewersList, setViewersList] = useState([]);
+  const statusTimerRef = useRef(null);
   const [statusLoaded, setStatusLoaded] = useState(false);
   const [onlineUserIds, setOnlineUserIds] = useState(() => new Set());
   const [lastSeenMap, setLastSeenMap] = useState({});
@@ -301,11 +309,21 @@ const ChatApp = () => {
   const [bulkSelectMode, setBulkSelectMode] = useState(false);
   const [selectedChatKeys, setSelectedChatKeys] = useState(new Set());
 
-  const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('ww-theme') === 'dark');
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    const saved = localStorage.getItem('ww-theme');
+    return saved === 'dark';
+  });
   useEffect(() => {
     document.documentElement.classList.toggle('ww-dark', isDarkMode);
     localStorage.setItem('ww-theme', isDarkMode ? 'dark' : 'light');
   }, [isDarkMode]);
+
+  // Apply on first mount in case the page was refreshed in dark mode
+  useEffect(() => {
+    if (localStorage.getItem('ww-theme') === 'dark') {
+      document.documentElement.classList.add('ww-dark');
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [appLockEnabled, setAppLockEnabled] = useState(() => !!localStorage.getItem('ww-app-lock-hash'));
   const [isLocked, setIsLocked] = useState(() => !!localStorage.getItem('ww-app-lock-hash'));
@@ -419,12 +437,39 @@ const ChatApp = () => {
   useEffect(() => { setIsGroupMicMuted(groupCallHook.isGroupMicMuted); }, [groupCallHook.isGroupMicMuted]);
   useEffect(() => { setIsGroupCameraOff(groupCallHook.isGroupCameraOff); }, [groupCallHook.isGroupCameraOff]);
 
+  // ---- Active speaker detection ----
+  // Build a { userId -> stream } map from all group call streams so useSpeaking can poll them
+  const groupSpeakingStreams = {
+    ...(localGroupStream ? { [user.id]: localGroupStream } : {}),
+    ...Object.fromEntries(groupCallParticipants.filter((p) => p.stream).map((p) => [p.userId, p.stream])),
+  };
+  const groupSpeakingIds = useSpeaking(groupSpeakingStreams);
+
+  // Derived: is there a rejoinable call for the currently-open group chat?
+  const recentlyLeftCall = groupCallHook.recentlyLeftCall;
+  const rejoinGroupCall  = () => groupCallHook.rejoinGroupCall();
+  const canRejoin = selected?.type === 'group' && recentlyLeftCall?.groupId === selected.data.id;
+
   useEffect(() => { selectedRef.current = selected; }, [selected]);
   useEffect(() => { contactsRef.current = contacts; }, [contacts]);
   useEffect(() => { groupsRef.current = groups; }, [groups]);
   useEffect(() => { if (localVideoRef.current) localVideoRef.current.srcObject = localStream; }, [localStream]);
   useEffect(() => { if (localGroupVideoRef.current) localGroupVideoRef.current.srcObject = localGroupStream; }, [localGroupStream]);
-  useEffect(() => { if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream; }, [remoteStream]);
+  // ── Remote audio element for voice calls (always in DOM, never visible) ──────
+  // The remote video/audio stream must be attached to a media element that is
+  // always present regardless of whether we're in voice or video mode.
+  // We keep a hidden <audio> element permanently mounted for this purpose.
+  // The visible <video ref={remoteVideoRef}> is ALSO updated so video calls work.
+  const remoteAudioRef = useRef(null);
+
+  useEffect(() => {
+    // Attach to both the hidden audio element AND the video element (video mode)
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.srcObject = remoteStream || null;
+      if (remoteStream) remoteAudioRef.current.play().catch(() => {});
+    }
+    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream || null;
+  }, [remoteStream]);
   useEffect(() => {
     if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
   }, [messages, selected]);
@@ -1069,10 +1114,13 @@ const ChatApp = () => {
     if (statusLoaded) return;
     try {
       const res = await api.get('/api/status', authorization);
+      const now = Date.now();
+      // Filter client-side: hide anything older than 24h (belt-and-suspenders on top of TTL)
+      const notExpired = (items) => items.filter((s) => now - new Date(s.createdAt).getTime() < 86400000);
       const mine = res.data.find((s) => s.isMe);
       const others = res.data.filter((s) => !s.isMe);
-      setMyStatus(mine || null);
-      setStatusList(others);
+      setMyStatus(mine ? { ...mine, items: notExpired(mine.items) } : null);
+      setStatusList(others.map((s) => ({ ...s, items: notExpired(s.items) })).filter((s) => s.items.length > 0));
       setStatusLoaded(true);
     } catch { /* silent */ }
   };
@@ -1115,6 +1163,34 @@ const ChatApp = () => {
 
   const STATUS_BG_COLORS = ['#128C7E', '#075E54', '#25D366', '#34B7F1', '#ECE5DD', '#9C27B0', '#E91E63', '#FF5722'];
   const [statusBgColor, setStatusBgColor] = useState('#128C7E');
+
+  // Auto-advance status viewer: 7s for text/image, capped at 90s for video
+  useEffect(() => {
+    clearTimeout(statusTimerRef.current);
+    if (!viewingStatus) return;
+    const item = viewingStatus.items[viewingStatus.index];
+    if (!item) return;
+    const delay = item.type === 'video' ? 90000 : 7000;
+    statusTimerRef.current = setTimeout(() => {
+      const nextIdx = viewingStatus.index + 1;
+      if (nextIdx < viewingStatus.items.length) {
+        viewStatus(viewingStatus, nextIdx);
+      } else {
+        setViewingStatus(null);
+      }
+    }, delay);
+    return () => clearTimeout(statusTimerRef.current);
+  }, [viewingStatus?.index, viewingStatus?.userId]); // eslint-disable-line
+
+  // Load viewers list when requested
+  const loadViewers = async (statusId) => {
+    setShowViewers(statusId);
+    setViewersList([]);
+    try {
+      const res = await api.get(`/api/status/${statusId}/viewers`, authorization);
+      setViewersList(res.data);
+    } catch { setViewersList([]); }
+  };
 
   // Reload status when tab becomes active
   useEffect(() => { if (activeTab === 'status') loadStatuses(); }, [activeTab]); // eslint-disable-line
@@ -1341,14 +1417,24 @@ const ChatApp = () => {
       <input type="file" ref={documentInputRef} style={{ display: 'none' }} onChange={handleDocumentSelect} />
       <input type="file" accept="audio/*" ref={audioFileInputRef} style={{ display: 'none' }} onChange={handleAudioFileSelect} />
       <input type="file" accept="image/*" capture="environment" ref={cameraInputRef} style={{ display: 'none' }} onChange={handleCameraCapture} />
+      {/* Hidden audio element — always mounted so remote audio plays in both voice AND video calls.
+          The <video ref={remoteVideoRef}> only exists in the video-mode branch so it can't be
+          relied upon for voice calls where no video grid is rendered. */}
+      <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: 'none' }} />
       {/* Rail */}
       <aside className="ww-rail">
-        <button type="button" data-popover-trigger className="ww-rail-avatar" title="Your profile" onClick={() => setInfoPanel(infoPanel === 'self' ? null : 'self')}>{initialOf(user.name)}</button>
+        <button type="button" data-popover-trigger className="ww-rail-avatar" title="Your profile" onClick={() => setInfoPanel(infoPanel === 'self' ? null : 'self')}>
+          {user.avatar
+            ? <img src={user.avatar} alt="avatar" className="ww-rail-avatar-img" />
+            : initialOf(user.name)
+          }
+        </button>
         <div className="ww-rail-icons">
           <button type="button" data-popover-trigger title="New chat" className={activePopover === 'newChat' ? 'active' : ''} onClick={() => setActivePopover(activePopover === 'newChat' ? null : 'newChat')}><MessageSquarePlus size={22} /></button>
           <button type="button" data-popover-trigger title="New group" className={activePopover === 'newGroup' ? 'active' : ''} onClick={() => setActivePopover(activePopover === 'newGroup' ? null : 'newGroup')}><UsersRound size={22} /></button>
-          <button type="button" title="Status" className={activeTab === 'status' ? 'active' : ''} onClick={() => { setActiveTab(activeTab === 'status' ? 'chats' : 'status'); if (activeTab !== 'status') loadStatuses(); setShowCallsPanel(false); }}><CircleDot size={22} /></button>
-          <button type="button" data-popover-trigger title="Calls" className={showCallsPanel ? 'active' : ''} onClick={() => { setShowCallsPanel((p) => !p); setActivePopover(null); if (!showCallsPanel) loadCallHistory(); }}><Phone size={22} /></button>
+          <button type="button" title="Status" className={activeTab === 'status' ? 'active' : ''} onClick={() => { setActiveTab(activeTab === 'status' ? 'chats' : 'status'); if (activeTab !== 'status') loadStatuses(); setShowCallsPanel(false); setShowMeetings(false); }}><CircleDot size={22} /></button>
+          <button type="button" data-popover-trigger title="Calls" className={showCallsPanel ? 'active' : ''} onClick={() => { setShowCallsPanel((p) => !p); setActivePopover(null); setShowMeetings(false); if (!showCallsPanel) loadCallHistory(); }}><Phone size={22} /></button>
+          <button type="button" title="Meetings" className={showMeetings ? 'active' : ''} onClick={() => { setShowMeetings((p) => !p); setShowCallsPanel(false); setActivePopover(null); }}><CalendarDays size={22} /></button>
         </div>
         <div className="ww-rail-bottom">
           <button type="button" title="Log out" onClick={() => setConfirmLogout(true)}><LogOut size={22} /></button>
@@ -1357,7 +1443,13 @@ const ChatApp = () => {
 
       {/* Chat list */}
       <section className="ww-list-panel">
-        {showCallsPanel ? (
+        {showMeetings ? (
+          <Meetings
+            socket={socketRef.current}
+            user={user}
+            onClose={() => setShowMeetings(false)}
+          />
+        ) : showCallsPanel ? (
           <>
             <header className="ww-list-header">
               <div className="ww-list-header-top">
@@ -1744,6 +1836,25 @@ const ChatApp = () => {
               )}
             </header>
 
+            {/* Rejoin banner — shown when user left an active group call in this chat */}
+            {canRejoin && (
+              <div className="ww-rejoin-banner">
+                <Video size={15} />
+                <span>Ongoing group call</span>
+                <button type="button" className="ww-rejoin-btn" onClick={rejoinGroupCall}>
+                  Rejoin
+                </button>
+                <button
+                  type="button"
+                  className="ww-rejoin-dismiss"
+                  title="Dismiss"
+                  onClick={() => socketRef.current?.emit('group-call-check-active', { callId: recentlyLeftCall.callId })}
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            )}
+
             {/* Pinned message strip */}
             {latestPinnedMessage && (
               <div className="ww-pinned-message-strip">
@@ -2001,7 +2112,10 @@ const ChatApp = () => {
 
           <div className="ww-info-body">
             {infoPanel === 'self' ? (
-              <SelfProfilePanel authorization={authorization} />
+              <SelfProfilePanel
+                authorization={authorization}
+                onProfileSaved={(updated) => setUser((prev) => ({ ...prev, ...updated }))}
+              />
             ) : (
               <>
                 <div className="ww-info-avatar">{initialOf(selected.type === 'group' ? selected.data.name : selected.data.username)}</div>
@@ -2174,11 +2288,14 @@ const ChatApp = () => {
         <div className="ww-call-modal video group">
           <p>Group call{groupCall.groupId ? ` · ${groups.find((g) => g.id === groupCall.groupId)?.name || ''}` : ''} ({groupCallParticipants.length + 1}/{MAX_GROUP_CALL_PARTICIPANTS})</p>
           <div className="ww-group-video-grid">
-            <div className="ww-group-video-tile"><video ref={localGroupVideoRef} autoPlay muted playsInline /><span className="ww-group-video-label">You</span></div>
+            <div className={`ww-group-video-tile ${groupSpeakingIds.has(user.id) ? 'speaking' : ''}`}>
+              <video ref={localGroupVideoRef} autoPlay muted playsInline />
+              <span className="ww-group-video-label">You</span>
+            </div>
             {groupCallParticipants.map((p) => (
-              <div key={p.userId} className="ww-group-video-tile">
+              <div key={p.userId} className={`ww-group-video-tile ${groupSpeakingIds.has(p.userId) ? 'speaking' : ''}`}>
                 <video autoPlay playsInline ref={(el) => { if (el && el.srcObject !== p.stream) el.srcObject = p.stream; }} />
-                <span className="ww-group-video-label">@{p.username}</span>
+                <span className="ww-group-video-label">{p.name || p.username}</span>
               </div>
             ))}
           </div>
@@ -2429,13 +2546,46 @@ const ChatApp = () => {
               </div>
               {viewingStatus.isMe && (
                 <div className="ww-status-viewer-footer">
-                  <Eye size={14} /> {item.viewCount} {item.viewCount === 1 ? 'view' : 'views'}
+                  <button
+                    type="button"
+                    className="ww-status-views-btn"
+                    onClick={() => loadViewers(item.id)}
+                  >
+                    <Eye size={14} /> {item.viewCount} {item.viewCount === 1 ? 'view' : 'views'}
+                  </button>
                 </div>
               )}
             </div>
           </div>
         );
       })()}
+
+      {/* Status viewers modal */}
+      {showViewers && (
+        <div className="ww-status-viewers-overlay" onClick={() => setShowViewers(null)}>
+          <div className="ww-status-viewers-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="ww-status-viewers-header">
+              <span><Eye size={15} /> Viewed by</span>
+              <button type="button" onClick={() => setShowViewers(null)}><X size={18} /></button>
+            </div>
+            {viewersList.length === 0 ? (
+              <p className="ww-status-viewers-empty">No views yet.</p>
+            ) : (
+              <div className="ww-status-viewers-list">
+                {viewersList.map((v) => (
+                  <div key={v.userId} className="ww-status-viewer-row">
+                    <span className="ww-avatar small">{initialOf(v.name)}</span>
+                    <span className="ww-status-viewer-info">
+                      <strong>{v.name}</strong>
+                      {v.username && <span>@{v.username}</span>}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Call settings modal */}
       {showCallSettings && (
